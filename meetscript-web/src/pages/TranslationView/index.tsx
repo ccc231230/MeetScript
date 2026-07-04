@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
-  Card,
   Table,
   Typography,
   Tag,
@@ -12,8 +11,9 @@ import {
   Space,
   App,
   Spin,
+  Tooltip,
 } from 'antd';
-import { EditOutlined, SaveOutlined, ExportOutlined } from '@ant-design/icons';
+import { EditOutlined, SaveOutlined, ExportOutlined, TranslationOutlined } from '@ant-design/icons';
 import { subtitlesAPI } from '../../api/subtitles';
 import { translationAPI } from '../../api/translation';
 import { exportsAPI } from '../../api/exports';
@@ -33,7 +33,6 @@ const TARGET_LANGUAGES = [
 
 export default function TranslationViewPage() {
   const { meetingId } = useParams<{ meetingId: string }>();
-  const navigate = useNavigate();
   const { message } = App.useApp();
   const [targetLang, setTargetLang] = useState('en');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -41,17 +40,13 @@ export default function TranslationViewPage() {
 
   const { data: subtitles, isLoading: subsLoading } = useQuery({
     queryKey: ['subtitles', meetingId],
-    queryFn: async () => {
-      return await subtitlesAPI.list(meetingId!);
-    },
+    queryFn: async () => await subtitlesAPI.list(meetingId!),
     enabled: !!meetingId,
   });
 
   const { data: translations, refetch } = useQuery({
     queryKey: ['translations', meetingId, targetLang],
-    queryFn: async () => {
-      return await translationAPI.list(meetingId!, targetLang);
-    },
+    queryFn: async () => await translationAPI.list(meetingId!, targetLang),
     enabled: !!meetingId,
   });
 
@@ -60,9 +55,7 @@ export default function TranslationViewPage() {
       await translationAPI.request({ meeting_id: meetingId!, target_language: targetLang });
       message.success('翻译任务已提交');
       setTimeout(() => refetch(), 3000);
-    } catch {
-      message.error('翻译请求失败');
-    }
+    } catch { message.error('翻译请求失败'); }
   };
 
   const handleStartEdit = (sub: Subtitle, tr?: Translation) => {
@@ -82,17 +75,13 @@ export default function TranslationViewPage() {
       message.success('翻译已保存');
       setEditingId(null);
       refetch();
-    } catch {
-      message.error('保存失败');
-    }
+    } catch { message.error('保存失败'); }
   };
 
   const handleExport = async (format: string) => {
     try {
       const res = await exportsAPI.export({
-        meeting_id: meetingId!,
-        format: format as 'csv' | 'json',
-        lang: targetLang,
+        meeting_id: meetingId!, format: format as 'csv' | 'json', lang: targetLang,
       });
       const blob = res.data as unknown as Blob;
       const url = URL.createObjectURL(blob);
@@ -102,19 +91,16 @@ export default function TranslationViewPage() {
       a.click();
       URL.revokeObjectURL(url);
       message.success('导出成功');
-    } catch {
-      message.error('导出失败');
-    }
+    } catch { message.error('导出失败'); }
   };
 
-  // Build translation lookup
   const translationMap = new Map<string, Translation>();
   if (translations) {
     translations.forEach((t: Translation) => translationMap.set(t.subtitle_id, t));
   }
 
   if (subsLoading) {
-    return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
+    return <Spin size="large" className="block mx-auto mt-24" />;
   }
 
   const columns: ColumnsType<Subtitle> = [
@@ -122,11 +108,15 @@ export default function TranslationViewPage() {
       title: '时间',
       dataIndex: 'start_time_ms',
       key: 'time',
-      width: 100,
+      width: 110,
       render: (ms: number, r: Subtitle) => {
         const start = formatMs(ms);
         const end = formatMs(r.end_time_ms);
-        return <Text style={{ fontSize: 11 }}>{start} - {end}</Text>;
+        return (
+          <Text className="text-xs font-mono text-slate-500">
+            {start} - {end}
+          </Text>
+        );
       },
     },
     {
@@ -134,13 +124,15 @@ export default function TranslationViewPage() {
       dataIndex: 'speaker_label',
       key: 'speaker',
       width: 100,
-      render: (s: string) => <Tag>{s}</Tag>,
+      render: (s: string) => <Tag color="blue">{s}</Tag>,
     },
     {
       title: '原文',
       dataIndex: 'text',
       key: 'original',
-      render: (t: string) => <Text>{t}</Text>,
+      render: (t: string) => (
+        <Text className="text-sm leading-relaxed">{t}</Text>
+      ),
     },
     {
       title: '译文',
@@ -154,12 +146,10 @@ export default function TranslationViewPage() {
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
                 rows={2}
+                className="rounded-lg"
               />
               <Space>
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<SaveOutlined />}
+                <Button size="small" type="primary" icon={<SaveOutlined />}
                   onClick={() => handleSaveEdit(r)}
                 >
                   保存
@@ -172,16 +162,19 @@ export default function TranslationViewPage() {
           );
         }
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Text style={{ color: tr ? '#1890ff' : '#ccc' }}>
+          <div className="flex items-center gap-2 group">
+            <Text style={{ color: tr ? '#0D9488' : '#CBD5E1' }} className="text-sm">
               {tr?.translated_text ?? '未翻译'}
             </Text>
-            <Button
-              size="small"
-              icon={<EditOutlined />}
-              type="link"
-              onClick={() => handleStartEdit(r, tr)}
-            />
+            <Tooltip title="编辑翻译">
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                type="text"
+                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => handleStartEdit(r, tr)}
+              />
+            </Tooltip>
           </div>
         );
       },
@@ -189,32 +182,39 @@ export default function TranslationViewPage() {
   ];
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <Title level={4} style={{ margin: 0 }}>翻译查看</Title>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <Title level={4} className="!mb-1 !text-slate-800">翻译查看</Title>
+          <Text type="secondary">查看和管理会议字幕的翻译内容</Text>
+        </div>
         <Space wrap>
           <Select
             value={targetLang}
             onChange={setTargetLang}
             options={TARGET_LANGUAGES}
-            style={{ width: 120 }}
+            style={{ width: 130 }}
           />
-          <Button onClick={handleRequestTranslation}>请求翻译</Button>
+          <Button icon={<TranslationOutlined />} onClick={handleRequestTranslation}>
+            请求翻译
+          </Button>
           <Button icon={<ExportOutlined />} onClick={() => handleExport('csv')}>
             导出 CSV
           </Button>
         </Space>
       </div>
 
-      <Card style={{ marginTop: 16 }}>
+      {/* Table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <Table
           dataSource={subtitles}
           columns={columns}
           rowKey="id"
-          pagination={{ pageSize: 30, showSizeChanger: true }}
-          size="small"
+          pagination={{ pageSize: 30, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
+          size="middle"
         />
-      </Card>
+      </div>
     </div>
   );
 }

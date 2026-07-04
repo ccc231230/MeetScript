@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Card,
   Table,
   Button,
   Typography,
@@ -12,9 +11,6 @@ import {
   InputNumber,
   Switch,
   Slider,
-  Statistic,
-  Row,
-  Col,
   Tag,
   Space,
   App,
@@ -37,6 +33,12 @@ const MODEL_TYPE_ICONS: Record<ModelType, React.ReactNode> = {
   asr: <PlayCircleOutlined />,
   translation: <GlobalOutlined />,
   summary: <RobotOutlined />,
+};
+
+const MODEL_TYPE_GRADIENTS: Record<ModelType, string> = {
+  asr: 'linear-gradient(135deg, #0D9488, #14B8A6)',
+  translation: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
+  summary: 'linear-gradient(135deg, #F59E0B, #F97316)',
 };
 
 export default function ModelConfigPage() {
@@ -87,15 +89,29 @@ export default function ModelConfigPage() {
       title: '类型',
       dataIndex: 'model_type',
       key: 'model_type',
-      width: 150,
+      width: 180,
       render: (t: ModelType) => (
         <Space>
-          {MODEL_TYPE_ICONS[t]}
+          <div
+            className="flex items-center justify-center rounded-md"
+            style={{
+              width: 28, height: 28,
+              background: MODEL_TYPE_GRADIENTS[t] || MODEL_TYPE_GRADIENTS.asr,
+            }}
+          >
+            <span className="text-white text-xs">{MODEL_TYPE_ICONS[t]}</span>
+          </div>
           <Text>{MODEL_TYPE_LABELS[t] ?? t}</Text>
         </Space>
       ),
     },
-    { title: 'Provider', dataIndex: 'provider', key: 'provider', width: 120 },
+    {
+      title: 'Provider',
+      dataIndex: 'provider',
+      key: 'provider',
+      width: 120,
+      render: (p: string) => <Tag>{p}</Tag>,
+    },
     {
       title: '模型名称',
       dataIndex: 'model_name',
@@ -115,7 +131,7 @@ export default function ModelConfigPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 120,
+      width: 100,
       render: (_: unknown, r: ModelConfig) => (
         <Button size="small" icon={<SettingOutlined />} onClick={() => handleEdit(r)}>
           配置
@@ -125,43 +141,69 @@ export default function ModelConfigPage() {
   ];
 
   if (isLoading) {
-    return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
+    return <Spin size="large" className="block mx-auto mt-24" />;
   }
 
   return (
-    <div>
-      <Title level={4}>模型配置</Title>
+    <div className="space-y-6">
+      <div>
+        <Title level={4} className="!mb-1 !text-slate-800">模型配置</Title>
+        <Text type="secondary">管理 AI 模型参数与开关</Text>
+      </div>
 
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+      {/* Model Type Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {(['asr', 'translation', 'summary'] as ModelType[]).map((type) => {
           const cfg = configs?.find((c: ModelConfig) => c.model_type === type && c.is_active);
           return (
-            <Col xs={24} sm={8} key={type}>
-              <Card>
-                <Statistic
-                  title={MODEL_TYPE_LABELS[type]}
-                  value={cfg?.model_name ?? '未配置'}
-                  prefix={MODEL_TYPE_ICONS[type]}
-                  valueStyle={{ fontSize: 16 }}
-                />
-              </Card>
-            </Col>
+            <div
+              key={type}
+              className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-sm transition-shadow"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div
+                  className="flex items-center justify-center rounded-lg"
+                  style={{
+                    width: 40, height: 40,
+                    background: MODEL_TYPE_GRADIENTS[type],
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                  }}
+                >
+                  <span className="text-white text-lg">{MODEL_TYPE_ICONS[type]}</span>
+                </div>
+                <div>
+                  <Text strong className="text-slate-700">{MODEL_TYPE_LABELS[type]}</Text>
+                </div>
+              </div>
+              <div className="text-lg font-bold text-slate-800">
+                {cfg?.model_name ?? '未配置'}
+              </div>
+              <Text type="secondary" className="text-xs">
+                {cfg ? `${cfg.provider}` : '点击下方表格进行配置'}
+              </Text>
+            </div>
           );
         })}
-      </Row>
+      </div>
 
-      <Card>
+      {/* Config Table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <Table
           dataSource={configs}
           columns={columns}
           rowKey="id"
           pagination={false}
-          size="small"
+          size="middle"
         />
-      </Card>
+      </div>
 
+      {/* Edit Modal */}
       <Modal
-        title={`配置 - ${editModal?.model_name ?? ''}`}
+        title={
+          <span className="font-semibold">
+            配置 - {editModal?.model_name ?? ''}
+          </span>
+        }
         open={!!editModal}
         onCancel={() => setEditModal(null)}
         onOk={handleSave}
@@ -171,7 +213,7 @@ export default function ModelConfigPage() {
         {editModal && (
           <Form form={form} layout="vertical">
             <Form.Item label="模型名称" name="model_name">
-              <Input />
+              <Input className="rounded-lg" />
             </Form.Item>
             <Form.Item label="启用" name="is_active" valuePropName="checked">
               <Switch />
@@ -203,16 +245,14 @@ export default function ModelConfigPage() {
             )}
 
             {editModal.model_type === 'translation' && (
-              <>
-                <Form.Item label="源语言" name="source_lang" initialValue="auto">
-                  <Select options={[
-                    { value: 'auto', label: '自动检测' },
-                    { value: 'zh', label: '中文' },
-                    { value: 'en', label: 'English' },
-                    { value: 'ja', label: '日本語' },
-                  ]} />
-                </Form.Item>
-              </>
+              <Form.Item label="源语言" name="source_lang" initialValue="auto">
+                <Select options={[
+                  { value: 'auto', label: '自动检测' },
+                  { value: 'zh', label: '中文' },
+                  { value: 'en', label: 'English' },
+                  { value: 'ja', label: '日本語' },
+                ]} />
+              </Form.Item>
             )}
           </Form>
         )}

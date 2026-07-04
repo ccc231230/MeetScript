@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Card,
   Typography,
   Spin,
   Tag,
@@ -14,6 +13,7 @@ import {
   Segmented,
   Tooltip,
   Empty,
+  Avatar,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -21,6 +21,8 @@ import {
   TranslationOutlined,
   ExportOutlined,
   SoundOutlined,
+  PauseCircleOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { meetingsAPI } from '../../api/meetings';
 import { subtitlesAPI } from '../../api/subtitles';
@@ -29,12 +31,12 @@ import { exportsAPI } from '../../api/exports';
 import { useSearch } from '../../hooks/useSearch';
 import type { Meeting, Subtitle, Translation } from '../../types';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text } = Typography;
 
-const SPEAKER_COLORS = [
-  '#4A90D9', '#6ABF69', '#E8A838', '#E05555',
-  '#8E6ACF', '#3CB8B8', '#E05B9E', '#E88A3C',
-];
+const SPEAKER_COLORS: readonly string[] = [
+  '#0D9488', '#6366F1', '#F59E0B', '#EF4444',
+  '#8B5CF6', '#06B6D4', '#EC4899', '#F97316',
+] as const;
 
 const TARGET_LANGUAGES = [
   { value: 'zh', label: '中文' },
@@ -55,19 +57,37 @@ function formatTime(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function SpeakerAvatar({ label, color, size = 28 }: { label: string; color: string; size?: number }) {
+  const initial = (label || '?')[0].toUpperCase();
+  return (
+    <Avatar
+      size={size}
+      style={{
+        backgroundColor: color,
+        verticalAlign: 'middle',
+        fontSize: size * 0.45,
+        fontWeight: 700,
+        flexShrink: 0,
+      }}
+    >
+      {initial}
+    </Avatar>
+  );
+}
+
 export default function MeetingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { message } = App.useApp();
-
   const [targetLang, setTargetLang] = useState('en');
   const [viewMode, setViewMode] = useState<'original' | 'bilingual' | 'translation'>('original');
   const [currentTime, setCurrentTime] = useState(0);
-  const [translating, setTranslating] = useState(false); // show loading when translation task is submitted
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [translating, setTranslating] = useState(false);
   const { query, setQuery } = useSearch(300);
   const videoRef = useRef<HTMLVideoElement>(null);
   const subtitleListRef = useRef<HTMLDivElement>(null);
   const activeSubRef = useRef<HTMLDivElement>(null);
-  const autoTranslatedRef = useRef<Set<string>>(new Set()); // track already-triggered auto translations
+  const autoTranslatedRef = useRef<Set<string>>(new Set());
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) {
@@ -82,10 +102,9 @@ export default function MeetingDetailPage() {
       return res.data;
     },
     enabled: !!id,
-    // Auto-poll while meeting is still processing (every 5 seconds)
     refetchInterval: (query) => {
       const data = query.state.data;
-      if (!data) return 5000; // initial load
+      if (!data) return 5000;
       if (data.status === 'completed' || data.status === 'failed') return false;
       return 5000;
     },
@@ -93,29 +112,23 @@ export default function MeetingDetailPage() {
 
   const { data: subtitles, isLoading: subsLoading } = useQuery({
     queryKey: ['subtitles', id],
-    queryFn: async () => {
-      return await subtitlesAPI.list(id!);
-    },
+    queryFn: async () => await subtitlesAPI.list(id!),
     enabled: !!id,
-    // Auto-poll while meeting is still processing
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data || (Array.isArray(data) && data.length === 0)) return 5000;
-      return false; // subtitles loaded, stop polling
+      return false;
     },
   });
 
   const { data: translations, isFetched: transFetched } = useQuery({
     queryKey: ['translations', id, targetLang],
-    queryFn: async () => {
-      return await translationAPI.list(id!, targetLang);
-    },
+    queryFn: async () => await translationAPI.list(id!, targetLang),
     enabled: !!id,
-    // Poll while translation is in progress (every 3s)
     refetchInterval: translating ? 3000 : false,
   });
 
-  // When translations become available for the selected language, auto-switch to bilingual
+  // Auto-switch to bilingual when translations arrive
   const prevHasTranslations = useRef(false);
   useEffect(() => {
     const hasTranslations = translations && translations.length > 0;
@@ -125,24 +138,20 @@ export default function MeetingDetailPage() {
     prevHasTranslations.current = hasTranslations || false;
   }, [translations]);
 
-  // Also auto-switch when targetLang changes and translations exist
   useEffect(() => {
     if (translations && translations.length > 0 && viewMode === 'original') {
       setViewMode('bilingual');
     }
   }, [targetLang]);
 
-  // ── Auto-trigger translation when switching to a language with no translations ──
+  // Auto-trigger translation
   useEffect(() => {
-    // Only fire after the translations query has settled and targetLang isn't source language
     if (!transFetched || targetLang === meeting?.source_language) return;
-    // If no translations exist for this language and we haven't auto-triggered yet
     if (translations && translations.length === 0 && !autoTranslatedRef.current.has(targetLang)) {
       autoTranslatedRef.current.add(targetLang);
       setTranslating(true);
       handleRequestTranslation();
     }
-    // If translations do exist, clear translating state
     if (translations && translations.length > 0) {
       setTranslating(false);
     }
@@ -151,9 +160,7 @@ export default function MeetingDetailPage() {
   const handleExport = async (format: string) => {
     try {
       const res = await exportsAPI.export({
-        meeting_id: id!,
-        format: format as 'srt' | 'vtt' | 'json' | 'txt',
-        lang: targetLang,
+        meeting_id: id!, format: format as 'srt' | 'vtt' | 'json' | 'txt', lang: targetLang,
       });
       const blob = res.data as unknown as Blob;
       const url = URL.createObjectURL(blob);
@@ -163,9 +170,7 @@ export default function MeetingDetailPage() {
       a.click();
       URL.revokeObjectURL(url);
       message.success(`已导出 ${format.toUpperCase()} 格式`);
-    } catch {
-      message.error('导出失败');
-    }
+    } catch { message.error('导出失败'); }
   };
 
   const handleRequestTranslation = async () => {
@@ -179,30 +184,22 @@ export default function MeetingDetailPage() {
     }
   };
 
-  // Build speaker map for colors
   const speakerMap = useMemo(() => {
     const speakers = new Map<string, string>();
     if (subtitles) {
-      const uniqueSpeakers = [...new Set(subtitles.map((s: Subtitle) => s.speaker_label))];
-      uniqueSpeakers.forEach((sp, i) => {
+      [...new Set(subtitles.map((s: Subtitle) => s.speaker_label))].forEach((sp, i) => {
         speakers.set(sp, SPEAKER_COLORS[i % SPEAKER_COLORS.length]);
       });
     }
     return speakers;
   }, [subtitles]);
 
-  // Build translation lookup
   const translationMap = useMemo(() => {
     const map = new Map<string, Translation>();
-    if (translations) {
-      translations.forEach((t: Translation) => {
-        map.set(t.subtitle_id, t);
-      });
-    }
+    if (translations) translations.forEach((t: Translation) => map.set(t.subtitle_id, t));
     return map;
   }, [translations]);
 
-  // Filter subtitles by search query (show all when not searching)
   const filteredSubtitles = useMemo(() => {
     if (!subtitles) return [];
     if (!query.trim()) return subtitles;
@@ -210,24 +207,16 @@ export default function MeetingDetailPage() {
     return subtitles.filter((s: Subtitle) => s.text.toLowerCase().includes(q));
   }, [subtitles, query]);
 
-  // Find the index of the currently active subtitle
   const activeIndex = useMemo(() => {
     if (!filteredSubtitles.length) return -1;
-    // Binary search for the subtitle covering currentTime
     let lo = 0, hi = filteredSubtitles.length - 1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
       const s = filteredSubtitles[mid];
-      if (currentTime >= s.start_time_ms && currentTime <= s.end_time_ms) {
-        return mid;
-      }
-      if (currentTime < s.start_time_ms) {
-        hi = mid - 1;
-      } else {
-        lo = mid + 1;
-      }
+      if (currentTime >= s.start_time_ms && currentTime <= s.end_time_ms) return mid;
+      if (currentTime < s.start_time_ms) hi = mid - 1;
+      else lo = mid + 1;
     }
-    // Find the last subtitle whose end_time <= currentTime
     for (let i = filteredSubtitles.length - 1; i >= 0; i--) {
       if (filteredSubtitles[i].end_time_ms <= currentTime) return i;
     }
@@ -241,7 +230,6 @@ export default function MeetingDetailPage() {
     }
   }, [activeIndex]);
 
-  // Reset scroll when search results change
   const prevSubCount = useRef(0);
   useEffect(() => {
     if (filteredSubtitles.length !== prevSubCount.current && subtitleListRef.current) {
@@ -251,20 +239,18 @@ export default function MeetingDetailPage() {
   }, [filteredSubtitles.length]);
 
   const statusColor: Record<string, string> = {
-    uploaded: 'blue',
-    preprocessing: 'cyan',
-    processing: 'processing' as const,
-    completed: 'green',
-    failed: 'red',
+    uploaded: 'blue', preprocessing: 'cyan',
+    processing: 'processing' as const, completed: 'green', failed: 'red',
+  };
+  const statusLabel: Record<string, string> = {
+    uploaded: '已上传', preprocessing: '预处理中',
+    processing: '处理中', completed: '已完成', failed: '失败',
   };
 
   if (meetingLoading || subsLoading) {
-    return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
+    return <Spin size="large" className="block mx-auto mt-24" />;
   }
-
-  if (!meeting) {
-    return <div>会议不存在</div>;
-  }
+  if (!meeting) return <div className="text-center py-20 text-slate-400">会议不存在</div>;
 
   const m = meeting as Meeting;
 
@@ -275,86 +261,187 @@ export default function MeetingDetailPage() {
     }
   };
 
-  // ─── Toolbar ────────────────────────────────────────────────
-  const toolbar = (
-    <div style={{
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      flexWrap: 'wrap', gap: 8, marginBottom: 12,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Title level={5} style={{ margin: 0, fontWeight: 600 }}>{m.title}</Title>
-        <Tag color={statusColor[m.status]} style={{ margin: 0 }}>{m.status}</Tag>
-        <Text type="secondary" style={{ fontSize: 13 }}>{m.source_language}</Text>
-        {m.duration_seconds && (
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            {Math.floor(m.duration_seconds / 60)} 分钟
-          </Text>
-        )}
+  const togglePlay = () => {
+    if (videoRef.current) {
+      if (videoRef.current.paused) videoRef.current.play();
+      else videoRef.current.pause();
+    }
+  };
+
+  // ─── Feishu-style Subtitle Row ───
+  const renderSubtitleRow = (sub: Subtitle, idx: number) => {
+    const translation = translationMap.get(sub.id);
+    const speakerColor = speakerMap.get(sub.speaker_label) ?? '#64748B';
+    const isActive = idx === activeIndex;
+
+    return (
+      <div
+        key={sub.id}
+        ref={isActive ? activeSubRef : null}
+        onClick={() => handleSubClick(sub.start_time_ms)}
+        className="subtitle-active group"
+        style={{
+          display: 'flex',
+          gap: 12,
+          padding: '14px 20px',
+          cursor: 'pointer',
+          background: isActive
+            ? 'linear-gradient(90deg, rgba(13,148,136,0.06) 0%, rgba(13,148,136,0.02) 100%)'
+            : 'transparent',
+          borderLeft: isActive ? `3px solid ${speakerColor}` : '3px solid transparent',
+          borderBottom: '1px solid #F1F5F9',
+          transition: 'all 0.2s ease',
+        }}
+        onMouseEnter={(e) => {
+          if (!isActive) e.currentTarget.style.background = '#F8FAFC';
+        }}
+        onMouseLeave={(e) => {
+          if (!isActive) e.currentTarget.style.background = 'transparent';
+        }}
+      >
+        {/* Timestamp */}
+        <div className="flex flex-col items-center shrink-0" style={{ width: 48 }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleSubClick(sub.start_time_ms); }}
+            className="flex flex-col items-center gap-0.5 border-none bg-transparent cursor-pointer transition-colors"
+            style={{ color: isActive ? speakerColor : '#94A3B8', padding: '2px 4px', borderRadius: 6 }}
+          >
+            <PlayCircleOutlined style={{ fontSize: 12 }} />
+            <span style={{
+              fontSize: 11,
+              fontWeight: isActive ? 600 : 400,
+              fontVariantNumeric: 'tabular-nums',
+            }}>
+              {formatTime(sub.start_time_ms)}
+            </span>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {/* Speaker row */}
+          <div className="flex items-center gap-2 mb-2">
+            <SpeakerAvatar label={sub.speaker_label} color={speakerColor} size={22} />
+            <span style={{
+              fontSize: 12, fontWeight: 600, color: speakerColor,
+              lineHeight: 1,
+            }}>
+              {sub.speaker_label}
+            </span>
+            {sub.is_candidate && (
+              <Tag color="orange" className="!m-0 !text-[10px] !leading-4 !px-1">候选</Tag>
+            )}
+            {sub.confidence > 0 && (
+              <span className="text-[10px] text-slate-400 ml-auto">
+                {Math.round(sub.confidence * 100)}%
+              </span>
+            )}
+          </div>
+
+          {/* Original text */}
+          {viewMode !== 'translation' && (
+            <p style={{
+              margin: 0,
+              fontSize: 15,
+              lineHeight: 1.75,
+              color: isActive ? '#0F172A' : '#334155',
+              fontWeight: isActive ? 500 : 400,
+              wordBreak: 'break-word',
+            }}>
+              {query.trim() ? (
+                <span dangerouslySetInnerHTML={{
+                  __html: sub.text.replace(
+                    new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
+                    '<mark style="background:#FDE68A;padding:0 2px;border-radius:2px;color:#1E293B">$1</mark>',
+                  ),
+                }} />
+              ) : sub.text}
+            </p>
+          )}
+
+          {/* Translation */}
+          {(viewMode === 'bilingual' || viewMode === 'translation') && translation && (
+            <p style={{
+              margin: viewMode === 'bilingual' ? '6px 0 0' : 0,
+              color: '#0D9488',
+              fontSize: viewMode === 'translation' ? 15 : 14,
+              fontWeight: viewMode === 'translation' && isActive ? 500 : 400,
+              lineHeight: 1.7,
+            }}>
+              {viewMode === 'bilingual' && (
+                <SoundOutlined style={{ marginRight: 5, fontSize: 11, opacity: 0.6 }} />
+              )}
+              {translation.translated_text}
+            </p>
+          )}
+          {viewMode === 'translation' && !translation && (
+            <p style={{
+              margin: 0, fontSize: 15, lineHeight: 1.7,
+              color: '#94A3B8', fontStyle: 'italic',
+            }}>
+              {sub.text}
+            </p>
+          )}
+        </div>
       </div>
-      <Space wrap size="small">
-        <Select
-          value={targetLang}
-          onChange={setTargetLang}
-          options={TARGET_LANGUAGES}
-          style={{ width: 110 }}
-          size="small"
-        />
-        <Segmented
-          options={[
-            { label: '原文', value: 'original' },
-            { label: '双语', value: 'bilingual' },
-            { label: '译文', value: 'translation' },
-          ]}
-          value={viewMode}
-          onChange={(v) => setViewMode(v as 'original' | 'bilingual' | 'translation')}
-          size="small"
-        />
-        <Tooltip title={translating ? '翻译处理中...' : '请求翻译'}>
-          <Button
-            icon={<TranslationOutlined />}
-            size="small"
-            onClick={handleRequestTranslation}
-            loading={translating}
-          />
-        </Tooltip>
-        <Tooltip title="导出字幕">
-          <Button icon={<ExportOutlined />} size="small" onClick={() => handleExport('srt')} />
-        </Tooltip>
-      </Space>
-    </div>
-  );
+    );
+  };
 
   return (
-    <div>
-      {toolbar}
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 160px)', minHeight: 560 }}>
+      {/* ─── Toolbar ─── */}
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4 shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <h1 className="text-lg font-bold text-slate-800 truncate m-0">{m.title}</h1>
+          <Tag color={statusColor[m.status]}>{statusLabel[m.status]}</Tag>
+          <Text type="secondary" className="text-xs">{m.source_language?.toUpperCase()}</Text>
+          {m.duration_seconds && (
+            <Text type="secondary" className="text-xs">
+              {Math.floor(m.duration_seconds / 60)} 分钟
+            </Text>
+          )}
+        </div>
+        <Space wrap size="small">
+          <Select
+            value={targetLang}
+            onChange={setTargetLang}
+            options={TARGET_LANGUAGES}
+            style={{ width: 110 }}
+            size="small"
+          />
+          <Segmented
+            options={[
+              { label: '原文', value: 'original' },
+              { label: '双语', value: 'bilingual' },
+              { label: '译文', value: 'translation' },
+            ]}
+            value={viewMode}
+            onChange={(v) => setViewMode(v as 'original' | 'bilingual' | 'translation')}
+            size="small"
+          />
+          <Tooltip title={translating ? '翻译处理中...' : '请求翻译'}>
+            <Button icon={<TranslationOutlined />} size="small" onClick={handleRequestTranslation} loading={translating} />
+          </Tooltip>
+          <Tooltip title="导出字幕">
+            <Button icon={<ExportOutlined />} size="small" onClick={() => handleExport('srt')} />
+          </Tooltip>
+        </Space>
+      </div>
 
-      {/* ─── Main split layout: Video (left) + Subtitles (right) ─── */}
-      <div style={{
-        display: 'flex', gap: 16,
-        height: 'calc(100vh - 180px)',
-        minHeight: 500,
-      }}>
-        {/* ─── LEFT: Video Panel ─── */}
-        <div style={{
-          flex: '0 0 52%',
-          display: 'flex', flexDirection: 'column',
-          minWidth: 0,
-        }}>
+      {/* ─── Main Split: Video (Left) + Subtitles (Right) - Feishu Style ─── */}
+      <div className="flex gap-0 flex-1 min-h-0 rounded-xl overflow-hidden border border-slate-200 shadow-sm">
+        {/* LEFT: Video Panel - Dark background like Feishu */}
+        <div className="flex-[0_0_50%] flex flex-col min-w-0 bg-[#1a1a2e] relative">
           {m.file_path ? (
-            <Card
-              size="small"
-              style={{
-                flex: 1, display: 'flex', flexDirection: 'column',
-                background: '#000', borderRadius: 8, overflow: 'hidden',
-                border: 'none',
-              }}
-              styles={{ body: { flex: 1, padding: 0, display: 'flex' } }}
-            >
+            <>
               <video
                 ref={videoRef}
                 controls
-                style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
+                className="w-full flex-1 object-contain"
+                style={{ background: '#0f0f1a' }}
                 onTimeUpdate={handleTimeUpdate}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
                 preload="metadata"
               >
                 <source
@@ -362,214 +449,72 @@ export default function MeetingDetailPage() {
                   type={m.file_type === 'video' ? 'video/mp4' : 'audio/mpeg'}
                 />
               </video>
-            </Card>
+
+              {/* Feishu-style floating play/pause overlay */}
+              {!isPlaying && subtitles && subtitles.length > 0 && (
+                <div
+                  className="absolute inset-0 flex items-center justify-center cursor-pointer"
+                  style={{ background: 'rgba(0,0,0,0.3)' }}
+                  onClick={togglePlay}
+                >
+                  <div
+                    className="flex items-center justify-center rounded-full transition-transform hover:scale-110"
+                    style={{
+                      width: 64, height: 64,
+                      background: 'rgba(255,255,255,0.15)',
+                      backdropFilter: 'blur(8px)',
+                    }}
+                  >
+                    <PlayCircleOutlined style={{ fontSize: 32, color: '#fff' }} />
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
-            <Card size="small" style={{ flex: 1 }}>
+            <div className="flex-1 flex items-center justify-center">
               <Empty description="无媒体文件" />
-            </Card>
+            </div>
           )}
         </div>
 
-        {/* ─── RIGHT: Subtitle Panel ─── */}
-        <div style={{
-          flex: 1,
-          display: 'flex', flexDirection: 'column',
-          minWidth: 380,
-          background: '#fff',
-          borderRadius: 8,
-          border: '1px solid #e8e8e8',
-          overflow: 'hidden',
-        }}>
+        {/* RIGHT: Subtitle Panel - Feishu-style clean list */}
+        <div className="flex-1 flex flex-col min-w-[380px] bg-white">
           {/* Search bar */}
-          <div style={{
-            padding: '12px 16px',
-            borderBottom: '1px solid #f0f0f0',
-            background: '#fafafa',
-          }}>
+          <div className="shrink-0 px-5 py-3 border-b border-slate-100 bg-white">
             <Input
-              prefix={<SearchOutlined style={{ color: '#bbb' }} />}
+              prefix={<SearchOutlined className="text-slate-400" />}
               placeholder="搜索字幕内容..."
               onChange={(e) => setQuery(e.target.value)}
               allowClear
-              size="small"
+              size="middle"
               variant="borderless"
-              style={{ background: '#fff', borderRadius: 6 }}
+              className="bg-slate-50 rounded-lg"
             />
           </div>
 
+          {/* Translation pending notice */}
+          {translating && translations && translations.length === 0 && (
+            <div className="shrink-0 flex items-center gap-3 px-5 py-3 bg-primary-50 border-b border-primary-100">
+              <Spin size="small" />
+              <Text className="text-primary-700 text-sm">
+                正在翻译为 {TARGET_LANGUAGES.find(l => l.value === targetLang)?.label || targetLang}...
+              </Text>
+            </div>
+          )}
+
           {/* Subtitle list */}
-          <div
-            ref={subtitleListRef}
-            style={{
-              flex: 1,
-              overflow: 'auto',
-              padding: '4px 0',
-            }}
-          >
+          <div ref={subtitleListRef} className="flex-1 overflow-y-auto">
             {filteredSubtitles.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 60, color: '#999' }}>
-                {query.trim() ? '没有找到匹配的字幕' : '暂无字幕数据'}
+              <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                <SearchOutlined style={{ fontSize: 40, marginBottom: 12 }} />
+                <Text type="secondary">
+                  {query.trim() ? '没有找到匹配的字幕' : '暂无字幕数据'}
+                </Text>
               </div>
             ) : (
-              <>
-                {/* Translation pending notice */}
-                {translating && translations && translations.length === 0 && (
-                  <div style={{
-                    textAlign: 'center', padding: '12px 16px',
-                    background: '#e6f7ff', borderBottom: '1px solid #91d5ff',
-                  }}>
-                    <Spin size="small" />
-                    <Text type="secondary" style={{ marginLeft: 8 }}>
-                      正在翻译为 {TARGET_LANGUAGES.find(l => l.value === targetLang)?.label || targetLang}...
-                    </Text>
-                  </div>
-                )}
-                {filteredSubtitles.map((sub: Subtitle, idx: number) => {
-                const translation = translationMap.get(sub.id);
-                const speakerColor = speakerMap.get(sub.speaker_label) ?? '#666';
-                const isActive = idx === activeIndex;
-                const isCandidate = sub.is_candidate;
-
-                return (
-                  <div
-                    key={sub.id}
-                    ref={isActive ? activeSubRef : null}
-                    onClick={() => handleSubClick(sub.start_time_ms)}
-                    style={{
-                      display: 'flex',
-                      gap: 0,
-                      padding: '10px 16px',
-                      cursor: 'pointer',
-                      transition: 'background 0.15s',
-                      background: isActive
-                        ? '#E8F4FD'
-                        : isCandidate
-                          ? '#fffbe6'
-                          : 'transparent',
-                      borderLeft: isActive ? `3px solid ${speakerColor}` : '3px solid transparent',
-                      borderBottom: '1px solid #f5f5f5',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isActive) e.currentTarget.style.background = '#fafafa';
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) e.currentTarget.style.background = isCandidate ? '#fffbe6' : 'transparent';
-                    }}
-                  >
-                    {/* Timestamp column */}
-                    <div style={{
-                      flexShrink: 0, width: 52,
-                      textAlign: 'center', paddingTop: 2,
-                    }}>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSubClick(sub.start_time_ms);
-                        }}
-                        style={{
-                          border: 'none', background: 'none', cursor: 'pointer',
-                          color: isActive ? speakerColor : '#888',
-                          fontSize: 12, fontWeight: isActive ? 600 : 400,
-                          padding: '2px 4px', borderRadius: 4,
-                          transition: 'color 0.15s',
-                          lineHeight: 1.3,
-                        }}
-                      >
-                        <PlayCircleOutlined style={{ fontSize: 10, marginRight: 2, display: 'block', margin: '0 auto 1px' }} />
-                        {formatTime(sub.start_time_ms)}
-                      </button>
-                    </div>
-
-                    {/* Content column */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      {/* Speaker + confidence */}
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        marginBottom: 3,
-                      }}>
-                        <span style={{
-                          display: 'inline-block',
-                          width: 6, height: 6, borderRadius: '50%',
-                          background: speakerColor,
-                          flexShrink: 0,
-                        }} />
-                        <Text style={{
-                          fontSize: 12, color: speakerColor,
-                          fontWeight: 500, lineHeight: 1,
-                        }}>
-                          {sub.speaker_label}
-                        </Text>
-                        {isCandidate && (
-                          <Tag color="orange" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
-                            候选
-                          </Tag>
-                        )}
-                        {sub.confidence > 0 && (
-                          <Text type="secondary" style={{ fontSize: 10, marginLeft: 'auto' }}>
-                            {Math.round(sub.confidence * 100)}%
-                          </Text>
-                        )}
-                      </div>
-
-                      {/* Main text — hidden in translation-only mode */}
-                      {viewMode !== 'translation' && (
-                        <Paragraph
-                          style={{
-                            margin: 0,
-                            fontSize: 14,
-                            lineHeight: 1.7,
-                            color: isActive ? '#111' : '#333',
-                            fontWeight: isActive ? 500 : 400,
-                            wordBreak: 'break-word',
-                          }}
-                        >
-                          <span
-                            dangerouslySetInnerHTML={{
-                              __html: query.trim()
-                                ? sub.text.replace(
-                                    new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
-                                    '<mark style="background:#ffd666;padding:0 2px;border-radius:2px">$1</mark>',
-                                  )
-                                : sub.text,
-                            }}
-                          />
-                        </Paragraph>
-                      )}
-
-                      {/* Translation text */}
-                      {(viewMode === 'bilingual' || viewMode === 'translation') && translation && (
-                        <Paragraph
-                          style={{
-                            margin: viewMode === 'bilingual' ? '4px 0 0' : 0,
-                            color: '#4A90D9',
-                            fontSize: viewMode === 'translation' ? 14 : 13,
-                            fontWeight: viewMode === 'translation' && isActive ? 500 : 400,
-                            lineHeight: 1.6,
-                          }}
-                        >
-                          {viewMode === 'bilingual' && <SoundOutlined style={{ marginRight: 4, fontSize: 11 }} />}
-                          {translation.translated_text}
-                        </Paragraph>
-                      )}
-                      {/* Fallback in translation mode when no translation exists yet */}
-                      {viewMode === 'translation' && !translation && (
-                        <Paragraph
-                          style={{
-                            margin: 0,
-                            fontSize: 14,
-                            lineHeight: 1.7,
-                            color: isActive ? '#111' : '#333',
-                            fontStyle: 'italic',
-                          }}
-                        >
-                          {sub.text}
-                        </Paragraph>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              </>
+              <div className="pb-4">
+                {filteredSubtitles.map((sub: Subtitle, idx: number) => renderSubtitleRow(sub, idx))}
+              </div>
             )}
           </div>
         </div>

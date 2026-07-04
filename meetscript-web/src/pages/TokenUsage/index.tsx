@@ -6,7 +6,6 @@ import {
   Typography,
   Row,
   Col,
-  Statistic,
   Select,
   Button,
   Spin,
@@ -15,19 +14,10 @@ import {
   App,
   Empty,
 } from 'antd';
-import { DollarOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { DollarOutlined, ThunderboltOutlined, DownloadOutlined } from '@ant-design/icons';
 import {
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
+  PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
 import { tokenUsageAPI } from '../../api/token-usage';
 import type { TokenUsage, TokenUsageStats } from '../../types';
@@ -35,7 +25,24 @@ import type { ColumnsType } from 'antd/es/table';
 
 const { Title, Text } = Typography;
 
-const PIE_COLORS = ['#1890ff', '#52c41a', '#faad14', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#fa8c16'];
+const PIE_COLORS = ['#0D9488', '#6366F1', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#F97316'];
+
+function StatCard({ icon, label, value, suffix, colorClass = 'text-primary-600' }: {
+  icon: React.ReactNode; label: string; value: number | string; suffix?: string; colorClass?: string;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-sm transition-shadow">
+      <div className="flex items-center gap-3 mb-3">
+        <span className={colorClass}>{icon}</span>
+        <Text type="secondary" className="text-sm">{label}</Text>
+      </div>
+      <div className={`text-2xl font-bold ${colorClass}`}>
+        {typeof value === 'number' ? value.toLocaleString() : value}
+        {suffix && <span className="text-sm font-normal text-slate-400 ml-1">{suffix}</span>}
+      </div>
+    </div>
+  );
+}
 
 export default function TokenUsagePage() {
   const { message } = App.useApp();
@@ -75,63 +82,47 @@ export default function TokenUsagePage() {
 
   const columns: ColumnsType<TokenUsage> = [
     {
-      title: '时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: 170,
-      render: (d: string) => new Date(d).toLocaleString(),
+      title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170,
+      render: (d: string) => <Text className="text-xs">{new Date(d).toLocaleString()}</Text>,
     },
     {
-      title: '操作类型',
-      dataIndex: 'operation_type',
-      key: 'operation_type',
-      width: 120,
-      render: (t: string) => <Tag>{t}</Tag>,
+      title: '操作类型', dataIndex: 'operation_type', key: 'operation_type', width: 120,
+      render: (t: string) => <Tag color="blue">{t}</Tag>,
     },
     {
-      title: '输入 Token',
-      dataIndex: 'tokens_input',
-      key: 'tokens_input',
-      width: 110,
+      title: '输入 Token', dataIndex: 'tokens_input', key: 'tokens_input', width: 110,
       render: (v: number) => v.toLocaleString(),
     },
     {
-      title: '输出 Token',
-      dataIndex: 'tokens_output',
-      key: 'tokens_output',
-      width: 110,
+      title: '输出 Token', dataIndex: 'tokens_output', key: 'tokens_output', width: 110,
       render: (v: number) => v.toLocaleString(),
     },
     {
-      title: '总计 Token',
-      dataIndex: 'tokens_total',
-      key: 'tokens_total',
-      width: 110,
-      render: (v: number) => (
-        <Text strong>{v.toLocaleString()}</Text>
-      ),
+      title: '总计 Token', dataIndex: 'tokens_total', key: 'tokens_total', width: 120,
+      render: (v: number) => <Text strong>{v.toLocaleString()}</Text>,
     },
     {
-      title: '成本 (¥)',
-      dataIndex: 'cost',
-      key: 'cost',
-      width: 100,
+      title: '成本', dataIndex: 'cost', key: 'cost', width: 120,
       render: (v: number) => (
-        <Text style={{ color: '#cf1322' }}>¥{Number(v).toFixed(6)}</Text>
+        <Text className="text-accent-600 font-medium">¥{Number(v).toFixed(6)}</Text>
       ),
     },
   ];
 
   if (isLoading || statsLoading) {
-    return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
+    return <Spin size="large" className="block mx-auto mt-24" />;
   }
 
   const s = stats as TokenUsageStats | undefined;
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Title level={4} style={{ margin: 0 }}>Token 消耗统计</Title>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <Title level={4} className="!mb-1 !text-slate-800">Token 消耗统计</Title>
+          <Text type="secondary">AI 模型调用成本与用量分析</Text>
+        </div>
         <Space>
           <Select
             value={days}
@@ -143,142 +134,91 @@ export default function TokenUsagePage() {
             ]}
             style={{ width: 130 }}
           />
-          <Button onClick={handleExportCSV}>导出 CSV</Button>
+          <Button icon={<DownloadOutlined />} onClick={handleExportCSV}>
+            导出 CSV
+          </Button>
         </Space>
       </div>
 
-      <Row gutter={[16, 16]} style={{ marginTop: 16, marginBottom: 24 }}>
-        <Col xs={24} sm={8}>
-          <Card>
-            <Statistic
-              title="总 Token 消耗"
-              value={s?.total_tokens ?? 0}
-              prefix={<ThunderboltOutlined />}
-              formatter={(v) => Number(v).toLocaleString()}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
-          <Card>
-            <Statistic
-              title="总成本"
-              value={s?.total_cost ?? 0}
-              prefix={<DollarOutlined />}
-              precision={6}
-              suffix="¥"
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
-          <Card>
-            <Statistic
-              title="API 调用次数"
-              value={listData?.total ?? 0}
-              prefix={<ThunderboltOutlined />}
-            />
-          </Card>
-        </Col>
-      </Row>
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <StatCard
+          icon={<ThunderboltOutlined className="text-xl" />}
+          label="总 Token 消耗"
+          value={s?.total_tokens ?? 0}
+          colorClass="text-primary-600"
+        />
+        <StatCard
+          icon={<DollarOutlined className="text-xl" />}
+          label="总成本"
+          value={s?.total_cost?.toFixed(4) ?? '0'}
+          suffix="¥"
+          colorClass="text-accent-600"
+        />
+        <StatCard
+          icon={<ThunderboltOutlined className="text-xl" />}
+          label="API 调用次数"
+          value={listData?.total ?? 0}
+          colorClass="text-indigo-500"
+        />
+      </div>
 
+      {/* Charts */}
       {s?.by_model && Object.keys(s.by_model).length > 0 ? (
         <>
-          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-            <Col xs={24} lg={12}>
-              <Card title="按模型 Token 分布" size="small">
-                <ResponsiveContainer width="100%" height={280}>
-                  <PieChart>
-                    <Pie
-                      data={Object.entries(s.by_model).map(([name, d]) => ({ name, value: d.tokens }))}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={90}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    >
-                      {Object.keys(s.by_model).map((_, i) => (
-                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v: number) => v.toLocaleString()} />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </Card>
-            </Col>
-            <Col xs={24} lg={12}>
-              <Card title="按模型成本分布" size="small">
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart
-                    data={Object.entries(s.by_model).map(([name, d]) => ({ name, cost: d.cost }))}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-white rounded-xl border border-slate-200 p-5">
+              <Text strong className="text-slate-700">按模型 Token 分布</Text>
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={Object.entries(s.by_model).map(([name, d]) => ({ name, value: d.tokens }))}
+                    dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90}
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                   >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip formatter={(v: number) => `¥${v.toFixed(6)}`} />
-                    <Bar dataKey="cost" fill="#1890ff" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </Card>
-            </Col>
-          </Row>
+                    {Object.keys(s.by_model).map((_, i) => (
+                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: number) => v.toLocaleString()} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
 
-          {s?.by_operation && Object.keys(s.by_operation).length > 0 && (
-            <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-              <Col xs={24} lg={12}>
-                <Card title="按操作类型 Token 分布" size="small">
-                  <ResponsiveContainer width="100%" height={280}>
-                    <PieChart>
-                      <Pie
-                        data={Object.entries(s.by_operation).map(([name, d]) => ({ name, value: d.tokens }))}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={90}
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      >
-                        {Object.keys(s.by_operation).map((_, i) => (
-                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(v: number) => v.toLocaleString()} />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </Card>
-              </Col>
-              <Col xs={24} lg={12}>
-                <Card title="按操作类型成本分布" size="small">
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart
-                      data={Object.entries(s.by_operation).map(([name, d]) => ({ name, cost: d.cost }))}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip formatter={(v: number) => `¥${v.toFixed(6)}`} />
-                      <Bar dataKey="cost" fill="#52c41a" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </Card>
-              </Col>
-            </Row>
-          )}
+            <div className="bg-white rounded-xl border border-slate-200 p-5">
+              <Text strong className="text-slate-700">按模型成本分布</Text>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart
+                  data={Object.entries(s.by_model).map(([name, d]) => ({ name, cost: d.cost }))}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip formatter={(v: number) => `¥${v.toFixed(6)}`} />
+                  <Bar dataKey="cost" fill="#0D9488" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </>
       ) : (
-        <Empty description="暂无统计数据" style={{ marginBottom: 24 }} />
+        <Empty description="暂无统计数据" />
       )}
 
-      <Card>
+      {/* Usage Table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-100">
+          <Text strong className="text-slate-700">使用记录</Text>
+        </div>
         <Table
           dataSource={listData?.items ?? []}
           columns={columns}
           rowKey="id"
           pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条记录` }}
-          size="small"
+          size="middle"
         />
-      </Card>
+      </div>
     </div>
   );
 }
