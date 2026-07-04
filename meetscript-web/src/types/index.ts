@@ -203,7 +203,7 @@ export interface ApiKeyCreate {
   key_name: string;
   scopes?: string[];
   rate_limit?: number;
-  expires_at?: string;
+  expires_in_days?: number;
 }
 
 export interface ApiKeyCreateResponse {

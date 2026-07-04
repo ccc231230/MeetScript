@@ -149,6 +149,38 @@ class TaskService:
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def list_user_tasks(
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        status: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict:
+        """List all tasks across all meetings owned by a user."""
+        from sqlalchemy import func
+        from app.models.meeting import Meeting
+
+        query = (
+            select(MeetingTask)
+            .join(Meeting, MeetingTask.meeting_id == Meeting.id)
+            .where(Meeting.user_id == user_id)
+        )
+        if status:
+            query = query.where(MeetingTask.status == status)
+
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await db.execute(count_query)
+        total = total_result.scalar() or 0
+
+        query = query.order_by(MeetingTask.created_at.desc())
+        query = query.offset((page - 1) * page_size).limit(page_size)
+
+        result = await db.execute(query)
+        items = list(result.scalars().all())
+
+        return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+    @staticmethod
     async def get_meeting_tasks(
         db: AsyncSession,
         meeting_id: uuid.UUID,

@@ -2,6 +2,9 @@ import apiClient from './client';
 import type { MeetingTask, TaskLog } from '../types';
 
 export const tasksAPI = {
+  list: (params?: { status?: string; page?: number; page_size?: number }) =>
+    apiClient.get<{ items: MeetingTask[]; total: number }>('/tasks', { params }),
+
   get: (id: string) =>
     apiClient.get<MeetingTask>(`/tasks/${id}`),
 

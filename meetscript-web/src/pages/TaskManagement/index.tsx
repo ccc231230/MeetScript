@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Card,
@@ -12,15 +12,14 @@ import {
   Tabs,
   Progress,
   Empty,
-  Spin,
   Collapse,
+  Spin,
 } from 'antd';
 import { ReloadOutlined, FileTextOutlined } from '@ant-design/icons';
 import { useSSE } from '../../hooks/useSSE';
 import { useTaskProgress } from '../../hooks/useTaskProgress';
-import { meetingsAPI } from '../../api/meetings';
-import { tasksAPI } from '../../api/tasks';
-import type { Meeting, MeetingTask, TaskLog } from '../../types';
+import { tasksAPI } from '../../api/tasks'; // v2
+import type { MeetingTask, TaskLog } from '../../types';
 import type { ColumnsType } from 'antd/es/table';
 
 const { Title, Text } = Typography;
@@ -59,20 +58,20 @@ export default function TaskManagementPage() {
 
   const { events, appendEvent } = useTaskProgress(selectedTaskId);
 
-  const { data: meetings } = useQuery({
-    queryKey: ['meetings', 'tasks'],
+  // Fetch real task list
+  const { data: taskListData, isLoading } = useQuery({
+    queryKey: ['tasks', statusFilter, activeTab],
     queryFn: async () => {
-      const res = await meetingsAPI.list({ page_size: 200 });
-      return res.data.items;
+      const res = await tasksAPI.list({
+        status: activeTab === 'dlq' ? 'dlq' : statusFilter,
+        page_size: 100,
+      });
+      return res.data;
     },
+    refetchInterval: 5000,
   });
 
-  // Collect all tasks from meetings (using mock task data since API doesn't provide bulk task list)
-  // In reality this would call a dedicated tasks list API
-  const tasks = useMemo(() => {
-    // For now, return empty - tasks need to be fetched from task endpoints
-    return [];
-  }, [meetings]);
+  const tasks: MeetingTask[] = taskListData?.items ?? [];
 
   // Subscribe to SSE for selected task
   useSSE(selectedTaskId, (event) => {
@@ -175,7 +174,9 @@ export default function TaskManagementPage() {
           {
             key: 'active',
             label: '进行中的任务',
-            children: (
+            children: isLoading ? (
+              <Spin size="large" style={{ display: 'block', margin: '60px auto' }} />
+            ) : (
               <Card>
                 <Space style={{ marginBottom: 16 }}>
                   <Select

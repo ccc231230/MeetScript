@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': {
+      '/api/': {
         // Docker Compose 内部 DNS（api 容器）；Windows 本地开发用 localhost:8000
         target: 'http://api:8000',
         changeOrigin: true,

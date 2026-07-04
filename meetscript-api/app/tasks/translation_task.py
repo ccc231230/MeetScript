@@ -75,6 +75,8 @@ def process_translation(
                     total = len(all_subtitles)
                     translated = 0
                     cached = 0
+                    total_tokens_input = 0
+                    total_tokens_output = 0
 
                     for i, sub in enumerate(all_subtitles):
                         result = await translation_service.translate_text(
@@ -87,6 +89,8 @@ def process_translation(
                             cached += 1
                         else:
                             translated += 1
+                            total_tokens_input += result["tokens_input"]
+                            total_tokens_output += result["tokens_output"]
 
                         # Save translation record to DB
                         from app.models.translation import Translation
@@ -110,11 +114,13 @@ def process_translation(
                                 db, task.id, "running", progress=progress,
                             )
 
-                    # Record token usage
+                    # Record token usage (accumulated across all subtitles)
                     await token_service.record_usage(
                         db,
                         user_id=meeting.user_id,
                         operation_type="translation",
+                        tokens_input=total_tokens_input,
+                        tokens_output=total_tokens_output,
                         model_name=result.get("model_used", "anytrans"),
                         meeting_id=mid,
                     )
@@ -126,6 +132,9 @@ def process_translation(
 
                 await meeting_service.update_status(db, mid, "completed")
                 await db.commit()
+
+                # Release task lock on success
+                await cache_service.release_task_lock(meeting_id, "translation")
 
                 return {"meeting_id": meeting_id, "results": results}
 

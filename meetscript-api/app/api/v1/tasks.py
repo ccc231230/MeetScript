@@ -12,6 +12,20 @@ from app.services.task_service import task_service
 router = APIRouter()
 
 
+@router.get("", response_model=TaskListOut)
+async def list_tasks(
+    status: str = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all tasks across all meetings owned by the current user."""
+    return await task_service.list_user_tasks(
+        db, uuid.UUID(user_id), status=status, page=page, page_size=page_size,
+    )
+
+
 @router.get("/{task_id}", response_model=TaskOut)
 async def get_task(
     task_id: str,

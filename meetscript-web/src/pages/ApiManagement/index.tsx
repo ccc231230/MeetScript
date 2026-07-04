@@ -9,7 +9,6 @@ import {
   Form,
   Input,
   InputNumber,
-  DatePicker,
   Tag,
   Space,
   App,
@@ -23,7 +22,6 @@ import type { ApiKey, ApiKeyCreateResponse } from '../../types';
 import type { ColumnsType } from 'antd/es/table';
 
 const { Title, Text, Paragraph } = Typography;
-import dayjs from 'dayjs';
 
 export default function ApiManagementPage() {
   const { message } = App.useApp();
@@ -199,11 +197,8 @@ export default function ApiManagementPage() {
             <Form.Item name="rate_limit" label="速率限制 (次/分钟)" initialValue={60}>
               <InputNumber style={{ width: '100%' }} min={1} max={1000} />
             </Form.Item>
-            <Form.Item name="expires_at" label="过期时间">
-              <DatePicker
-                style={{ width: '100%' }}
-                disabledDate={(d) => d && d.isBefore(dayjs())}
-              />
+            <Form.Item name="expires_in_days" label="有效期 (天)">
+              <InputNumber style={{ width: '100%' }} min={1} max={3650} placeholder="留空则永不过期" />
             </Form.Item>
           </Form>
         )}
