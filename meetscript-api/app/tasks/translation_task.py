@@ -34,6 +34,7 @@ def process_translation(
         target_languages: List of target language codes. Default to ["en", "ja"].
     """
     import asyncio
+    from app.core.redis_client import close_redis_connections
 
     if target_languages is None:
         target_languages = ["en", "ja"]
@@ -41,6 +42,9 @@ def process_translation(
     async def _process():
         async with get_session_factory()() as db:
             try:
+                # Reset Redis pool for fresh event loop (Celery prefork)
+                await close_redis_connections()
+
                 mid = uuid.UUID(meeting_id)
                 meeting = await meeting_service.get_meeting(db, mid)
                 if not meeting:
@@ -143,4 +147,4 @@ def process_translation(
                     return
                 raise self.retry(exc=exc)
 
-    return asyncio.get_event_loop().run_until_complete(_process())
+    return asyncio.run(_process())

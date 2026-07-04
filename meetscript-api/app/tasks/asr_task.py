@@ -12,6 +12,7 @@ from app.core.celery_app import app
 from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.services.asr_service import asr_service
+from app.core.redis_client import close_redis_connections
 from app.services.cache_service import cache_service
 from app.services.file_service import file_service
 from app.services.meeting_service import meeting_service
@@ -46,6 +47,11 @@ async def _run_asr(meeting_id: str, audio_url: Optional[str], request_id: str) -
     local_path = None
 
     try:
+        # Reset Redis connections for each asyncio.run() call —
+        # Celery prefork closes the event loop between tasks, leaving
+        # global Redis pool connections attached to a dead loop.
+        await close_redis_connections()
+
         # Release any stale lock from previous attempts
         await cache_service.release_task_lock(meeting_id, "asr")
 

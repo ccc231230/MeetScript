@@ -32,10 +32,14 @@ def process_audio(self, meeting_id: str):
     4. Update meeting duration and status
     """
     import asyncio
+    from app.core.redis_client import close_redis_connections
 
     async def _process():
         async with get_session_factory()() as db:
             try:
+                # Reset Redis pool for fresh event loop (Celery prefork)
+                await close_redis_connections()
+
                 mid = uuid.UUID(meeting_id)
 
                 # Create task record
@@ -55,7 +59,7 @@ def process_audio(self, meeting_id: str):
 
                 # Download the media file from MinIO to a local temp file
                 import asyncio
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 file_data = await file_service.download_file(meeting.file_path)
 
                 # Write to a temp file so ffmpeg can access it
@@ -135,4 +139,4 @@ def process_audio(self, meeting_id: str):
                     return
                 raise self.retry(exc=exc)
 
-    return asyncio.get_event_loop().run_until_complete(_process())
+    return asyncio.run(_process())

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { Card, Col, Row, Statistic, Typography, Table, Spin, Tag } from 'antd';
 import {
   VideoCameraOutlined,
@@ -16,6 +17,7 @@ const { Title } = Typography;
 
 export default function DashboardPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   const { data: meetings, isLoading: meetingsLoading } = useQuery({
     queryKey: ['meetings', 'dashboard'],
@@ -139,6 +141,10 @@ export default function DashboardPage() {
           rowKey="id"
           pagination={false}
           size="small"
+          onRow={(record) => ({
+            onClick: () => navigate(`/meetings/${record.id}`),
+            style: { cursor: 'pointer' },
+          })}
         />
       </Card>
     </div>

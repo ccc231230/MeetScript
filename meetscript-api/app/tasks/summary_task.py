@@ -28,11 +28,15 @@ def process_summary(self, meeting_id: str):
     3. Record token usage
     """
     import asyncio
+    from app.core.redis_client import close_redis_connections
     import json
 
     async def _process():
         async with get_session_factory()() as db:
             try:
+                # Reset Redis pool for fresh event loop (Celery prefork)
+                await close_redis_connections()
+
                 mid = uuid.UUID(meeting_id)
                 meeting = await meeting_service.get_meeting(db, mid)
                 if not meeting:
@@ -89,7 +93,7 @@ def process_summary(self, meeting_id: str):
                 # For now, store as task error_message field (hack) or in Redis
                 from app.core.redis_client import get_redis
 
-                redis = get_redis()
+                redis = await get_redis()
                 await redis.setex(
                     f"meeting_summary:{meeting_id}",
                     86400 * 30,  # 30 days
@@ -120,4 +124,4 @@ def process_summary(self, meeting_id: str):
                     return
                 raise self.retry(exc=exc)
 
-    return asyncio.get_event_loop().run_until_complete(_process())
+    return asyncio.run(_process())

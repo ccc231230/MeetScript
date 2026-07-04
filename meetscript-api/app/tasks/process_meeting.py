@@ -53,7 +53,7 @@ def _mark_meeting_failed(meeting_id: str, error: str):
             except Exception:
                 await db.rollback()
 
-    asyncio.get_event_loop().run_until_complete(_mark())
+    asyncio.run(_mark())
 
 
 # Import sub-tasks so Celery discovers them
