@@ -12,7 +12,7 @@ from app.core.celery_app import app
 from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.services.asr_service import asr_service
-from app.core.redis_client import close_redis_connections
+from app.core.redis_client import _redis_instances
 from app.services.cache_service import cache_service
 from app.services.file_service import file_service
 from app.services.meeting_service import meeting_service
@@ -47,11 +47,6 @@ async def _run_asr(meeting_id: str, audio_url: Optional[str], request_id: str) -
     local_path = None
 
     try:
-        # Reset Redis connections for each asyncio.run() call —
-        # Celery prefork closes the event loop between tasks, leaving
-        # global Redis pool connections attached to a dead loop.
-        await close_redis_connections()
-
         # Release any stale lock from previous attempts
         await cache_service.release_task_lock(meeting_id, "asr")
 
@@ -224,21 +219,29 @@ def process_asr(self, meeting_id: str, audio_url: Optional[str] = None):
         f"retry={self.request.retries}/{self.max_retries}",
     )
     try:
-        return asyncio.run(_run_asr(meeting_id, audio_url, self.request.id))
+        result = asyncio.run(_run_asr(meeting_id, audio_url, self.request.id))
+        _redis_instances.clear()
+        return result
     except Exception as exc:
         logger.warning(
             f"[ASR] Exception caught: {exc}\n{traceback.format_exc()}",
         )
         # Always release the lock so future manual retries can proceed
-        asyncio.run(
-            cache_service.release_task_lock(meeting_id, "asr"),
-        )
+        try:
+            asyncio.run(
+                cache_service.release_task_lock(meeting_id, "asr"),
+            )
+        finally:
+            _redis_instances.clear()
 
         if self.request.retries >= self.max_retries:
             logger.warning(f"[ASR] Max retries reached, marking as failed")
-            asyncio.run(
-                _mark_failed(meeting_id, task_id=None, error=str(exc)),
-            )
+            try:
+                asyncio.run(
+                    _mark_failed(meeting_id, task_id=None, error=str(exc)),
+                )
+            finally:
+                _redis_instances.clear()
             return None
         logger.warning(f"[ASR] Retrying in {self.default_retry_delay}s")
         raise self.retry(exc=exc)

@@ -8,6 +8,7 @@ from app.services.summary_service import summary_service
 from app.services.task_service import task_service
 from app.services.meeting_service import meeting_service
 from app.services.token_service import token_service
+from app.services.cache_service import cache_service
 
 
 @app.task(
@@ -28,15 +29,12 @@ def process_summary(self, meeting_id: str):
     3. Record token usage
     """
     import asyncio
-    from app.core.redis_client import close_redis_connections
+    from app.core.redis_client import _redis_instances
     import json
 
     async def _process():
         async with get_session_factory()() as db:
             try:
-                # Reset Redis pool for fresh event loop (Celery prefork)
-                await close_redis_connections()
-
                 mid = uuid.UUID(meeting_id)
                 meeting = await meeting_service.get_meeting(db, mid)
                 if not meeting:
@@ -111,6 +109,10 @@ def process_summary(self, meeting_id: str):
 
             except Exception as exc:
                 await db.rollback()
+                try:
+                    await cache_service.release_task_lock(meeting_id, "summary")
+                except Exception:
+                    pass
                 if self.request.retries >= self.max_retries:
                     async with get_session_factory()() as inner_db:
                         mid = uuid.UUID(meeting_id)
@@ -124,4 +126,7 @@ def process_summary(self, meeting_id: str):
                     return
                 raise self.retry(exc=exc)
 
-    return asyncio.run(_process())
+    try:
+        return asyncio.run(_process())
+    finally:
+        _redis_instances.clear()

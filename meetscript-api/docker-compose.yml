@@ -82,7 +82,7 @@ services:
 
   celery_worker_normal:
     build: .
-    command: celery -A app.core.celery_app worker -Q priority_normal -c 4 --hostname=normal@%h
+    command: celery -A app.core.celery_app worker -Q priority_normal --pool=solo --hostname=normal@%h -l info
     env_file:
       - .env
     depends_on:

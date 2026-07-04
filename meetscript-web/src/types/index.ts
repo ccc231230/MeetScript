@@ -136,7 +136,7 @@ export interface Translation {
 
 export interface TranslationRequest {
   meeting_id: string;
-  target_language: string;
+  target_languages: string[];
 }
 
 // ==================== Model Config ====================

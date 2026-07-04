@@ -34,7 +34,7 @@ def process_translation(
         target_languages: List of target language codes. Default to ["en", "ja"].
     """
     import asyncio
-    from app.core.redis_client import close_redis_connections
+    from app.core.redis_client import _redis_instances
 
     if target_languages is None:
         target_languages = ["en", "ja"]
@@ -42,9 +42,6 @@ def process_translation(
     async def _process():
         async with get_session_factory()() as db:
             try:
-                # Reset Redis pool for fresh event loop (Celery prefork)
-                await close_redis_connections()
-
                 mid = uuid.UUID(meeting_id)
                 meeting = await meeting_service.get_meeting(db, mid)
                 if not meeting:
@@ -134,6 +131,11 @@ def process_translation(
 
             except Exception as exc:
                 await db.rollback()
+                # Release lock so retry can proceed
+                try:
+                    await cache_service.release_task_lock(meeting_id, "translation")
+                except Exception:
+                    pass
                 if self.request.retries >= self.max_retries:
                     async with get_session_factory()() as inner_db:
                         mid = uuid.UUID(meeting_id)
@@ -147,4 +149,9 @@ def process_translation(
                     return
                 raise self.retry(exc=exc)
 
-    return asyncio.run(_process())
+    try:
+        return asyncio.run(_process())
+    finally:
+        # Clear Redis instances cache after asyncio.run() closes the event loop.
+        # This prevents "Event loop is closed" errors on the next task invocation.
+        _redis_instances.clear()

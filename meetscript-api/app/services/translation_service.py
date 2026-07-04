@@ -1,4 +1,4 @@
-"""Translation service using Aliyun Bailian AnyTrans with caching."""
+"""Translation service using Aliyun DashScope Qwen-MT with caching."""
 
 import hashlib
 from typing import Optional
@@ -8,7 +8,7 @@ from app.services.cache_service import cache_service
 
 settings = get_settings()
 
-# Supported language mapping
+# Supported language mapping (DashScope Qwen-MT uses full names)
 SUPPORTED_LANGUAGES = {
     "zh": "Chinese",
     "en": "English",
@@ -23,6 +23,8 @@ SUPPORTED_LANGUAGES = {
     "th": "Thai",
     "vi": "Vietnamese",
 }
+# Reverse mapping for short codes
+LANG_NAME_TO_CODE = {v: k for k, v in SUPPORTED_LANGUAGES.items()}
 
 
 class TranslationService:
@@ -53,7 +55,7 @@ class TranslationService:
             return {
                 "translated_text": "",
                 "from_cache": True,
-                "model_used": model or settings.DEFAULT_TRANSLATION_MODEL,
+                "model_used": model or "qwen-mt-flash",
                 "tokens_input": 0,
                 "tokens_output": 0,
             }
@@ -66,7 +68,7 @@ class TranslationService:
             return {
                 "translated_text": cached,
                 "from_cache": True,
-                "model_used": model or settings.DEFAULT_TRANSLATION_MODEL,
+                "model_used": model or "qwen-mt-flash",
                 "tokens_input": 0,
                 "tokens_output": 0,
             }
@@ -90,23 +92,29 @@ class TranslationService:
         source_language: str = "zh",
         model: Optional[str] = None,
     ) -> dict:
-        """Call the DashScope AnyTrans / TextTranslate API."""
-        import dashscope
+        """Call the DashScope Qwen-MT translation API via Generation.call."""
+        from dashscope import Generation
 
-        dashscope.api_key = self._api_key
+        model_name = model or "qwen-mt-flash"
 
-        model_name = model or settings.DEFAULT_TRANSLATION_MODEL
+        # Convert short codes to full language names for the API
+        src_lang = SUPPORTED_LANGUAGES.get(source_language, source_language)
+        tgt_lang = SUPPORTED_LANGUAGES.get(target_language, target_language)
 
         try:
-            response = dashscope.TextTranslate.call(
+            response = Generation.call(
+                api_key=self._api_key,
                 model=model_name,
-                source_language=source_language,
-                target_language=target_language,
-                text=text,
+                messages=[{"role": "user", "content": text}],
+                translation_options={
+                    "source_lang": src_lang,
+                    "target_lang": tgt_lang,
+                },
+                result_format="message",
             )
 
             if response.status_code == 200:
-                translated = response.output.get("translated", "")
+                translated = response.output.choices[0].message.content
                 usage = response.usage if hasattr(response, "usage") else {}
 
                 return {
@@ -118,7 +126,8 @@ class TranslationService:
                 }
             else:
                 raise RuntimeError(
-                    f"Translation API error: code={response.status_code}, message={response.message}"
+                    f"Translation API error: code={response.status_code}, "
+                    f"message={response.message}"
                 )
 
         except Exception as e:

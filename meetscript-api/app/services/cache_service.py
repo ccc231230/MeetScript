@@ -20,7 +20,7 @@ class CacheService:
     @staticmethod
     async def get(key: str) -> Optional[Any]:
         """Retrieve a cached value, deserialize from JSON."""
-        redis = get_redis()
+        redis = await get_redis()
         full_key = f"{CACHE_PREFIX}:{key}"
         value = await redis.get(full_key)
         if value is None:
@@ -30,21 +30,21 @@ class CacheService:
     @staticmethod
     async def set(key: str, value: Any, ttl: int = 300) -> None:
         """Set a cached value with TTL in seconds."""
-        redis = get_redis()
+        redis = await get_redis()
         full_key = f"{CACHE_PREFIX}:{key}"
         await redis.setex(full_key, ttl, json.dumps(value, default=str))
 
     @staticmethod
     async def delete(key: str) -> None:
         """Invalidate a cached entry."""
-        redis = get_redis()
+        redis = await get_redis()
         full_key = f"{CACHE_PREFIX}:{key}"
         await redis.delete(full_key)
 
     @staticmethod
     async def delete_pattern(pattern: str) -> int:
         """Delete all keys matching a pattern. Returns count deleted."""
-        redis = get_redis()
+        redis = await get_redis()
         full_pattern = f"{CACHE_PREFIX}:{pattern}"
         keys = []
         async for key in redis.scan_iter(match=full_pattern):

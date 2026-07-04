@@ -37,6 +37,7 @@ const SPEAKER_COLORS = [
 ];
 
 const TARGET_LANGUAGES = [
+  { value: 'zh', label: '中文' },
   { value: 'en', label: 'English' },
   { value: 'ja', label: '日本語' },
   { value: 'ko', label: '한국어' },
@@ -59,12 +60,14 @@ export default function MeetingDetailPage() {
   const { message } = App.useApp();
 
   const [targetLang, setTargetLang] = useState('en');
-  const [viewMode, setViewMode] = useState<'original' | 'bilingual'>('original');
+  const [viewMode, setViewMode] = useState<'original' | 'bilingual' | 'translation'>('original');
   const [currentTime, setCurrentTime] = useState(0);
+  const [translating, setTranslating] = useState(false); // show loading when translation task is submitted
   const { query, setQuery } = useSearch(300);
   const videoRef = useRef<HTMLVideoElement>(null);
   const subtitleListRef = useRef<HTMLDivElement>(null);
   const activeSubRef = useRef<HTMLDivElement>(null);
+  const autoTranslatedRef = useRef<Set<string>>(new Set()); // track already-triggered auto translations
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) {
@@ -102,13 +105,48 @@ export default function MeetingDetailPage() {
     },
   });
 
-  const { data: translations } = useQuery({
+  const { data: translations, isFetched: transFetched } = useQuery({
     queryKey: ['translations', id, targetLang],
     queryFn: async () => {
       return await translationAPI.list(id!, targetLang);
     },
-    enabled: !!id && viewMode === 'bilingual',
+    enabled: !!id,
+    // Poll while translation is in progress (every 3s)
+    refetchInterval: translating ? 3000 : false,
   });
+
+  // When translations become available for the selected language, auto-switch to bilingual
+  const prevHasTranslations = useRef(false);
+  useEffect(() => {
+    const hasTranslations = translations && translations.length > 0;
+    if (hasTranslations && !prevHasTranslations.current && viewMode === 'original') {
+      setViewMode('bilingual');
+    }
+    prevHasTranslations.current = hasTranslations || false;
+  }, [translations]);
+
+  // Also auto-switch when targetLang changes and translations exist
+  useEffect(() => {
+    if (translations && translations.length > 0 && viewMode === 'original') {
+      setViewMode('bilingual');
+    }
+  }, [targetLang]);
+
+  // ── Auto-trigger translation when switching to a language with no translations ──
+  useEffect(() => {
+    // Only fire after the translations query has settled and targetLang isn't source language
+    if (!transFetched || targetLang === meeting?.source_language) return;
+    // If no translations exist for this language and we haven't auto-triggered yet
+    if (translations && translations.length === 0 && !autoTranslatedRef.current.has(targetLang)) {
+      autoTranslatedRef.current.add(targetLang);
+      setTranslating(true);
+      handleRequestTranslation();
+    }
+    // If translations do exist, clear translating state
+    if (translations && translations.length > 0) {
+      setTranslating(false);
+    }
+  }, [targetLang, transFetched, meeting?.source_language]);
 
   const handleExport = async (format: string) => {
     try {
@@ -132,9 +170,11 @@ export default function MeetingDetailPage() {
 
   const handleRequestTranslation = async () => {
     try {
-      await translationAPI.request({ meeting_id: id!, target_language: targetLang });
-      message.success('翻译任务已提交，请稍候刷新查看');
+      setTranslating(true);
+      await translationAPI.request({ meeting_id: id!, target_languages: [targetLang] });
+      message.success(`翻译任务已提交（${targetLang}），处理中...`);
     } catch {
+      setTranslating(false);
       message.error('翻译请求失败');
     }
   };
@@ -263,13 +303,19 @@ export default function MeetingDetailPage() {
           options={[
             { label: '原文', value: 'original' },
             { label: '双语', value: 'bilingual' },
+            { label: '译文', value: 'translation' },
           ]}
           value={viewMode}
-          onChange={(v) => setViewMode(v as 'original' | 'bilingual')}
+          onChange={(v) => setViewMode(v as 'original' | 'bilingual' | 'translation')}
           size="small"
         />
-        <Tooltip title="请求翻译">
-          <Button icon={<TranslationOutlined />} size="small" onClick={handleRequestTranslation} />
+        <Tooltip title={translating ? '翻译处理中...' : '请求翻译'}>
+          <Button
+            icon={<TranslationOutlined />}
+            size="small"
+            onClick={handleRequestTranslation}
+            loading={translating}
+          />
         </Tooltip>
         <Tooltip title="导出字幕">
           <Button icon={<ExportOutlined />} size="small" onClick={() => handleExport('srt')} />
@@ -365,7 +411,20 @@ export default function MeetingDetailPage() {
                 {query.trim() ? '没有找到匹配的字幕' : '暂无字幕数据'}
               </div>
             ) : (
-              filteredSubtitles.map((sub: Subtitle, idx: number) => {
+              <>
+                {/* Translation pending notice */}
+                {translating && translations && translations.length === 0 && (
+                  <div style={{
+                    textAlign: 'center', padding: '12px 16px',
+                    background: '#e6f7ff', borderBottom: '1px solid #91d5ff',
+                  }}>
+                    <Spin size="small" />
+                    <Text type="secondary" style={{ marginLeft: 8 }}>
+                      正在翻译为 {TARGET_LANGUAGES.find(l => l.value === targetLang)?.label || targetLang}...
+                    </Text>
+                  </div>
+                )}
+                {filteredSubtitles.map((sub: Subtitle, idx: number) => {
                 const translation = translationMap.get(sub.id);
                 const speakerColor = speakerMap.get(sub.speaker_label) ?? '#666';
                 const isActive = idx === activeIndex;
@@ -452,47 +511,65 @@ export default function MeetingDetailPage() {
                         )}
                       </div>
 
-                      {/* Main text */}
-                      <Paragraph
-                        style={{
-                          margin: 0,
-                          fontSize: 14,
-                          lineHeight: 1.7,
-                          color: isActive ? '#111' : '#333',
-                          fontWeight: isActive ? 500 : 400,
-                          wordBreak: 'break-word',
-                        }}
-                      >
-                        <span
-                          dangerouslySetInnerHTML={{
-                            __html: query.trim()
-                              ? sub.text.replace(
-                                  new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
-                                  '<mark style="background:#ffd666;padding:0 2px;border-radius:2px">$1</mark>',
-                                )
-                              : sub.text,
-                          }}
-                        />
-                      </Paragraph>
-
-                      {/* Translation text */}
-                      {viewMode === 'bilingual' && translation && (
+                      {/* Main text — hidden in translation-only mode */}
+                      {viewMode !== 'translation' && (
                         <Paragraph
                           style={{
-                            margin: '4px 0 0',
+                            margin: 0,
+                            fontSize: 14,
+                            lineHeight: 1.7,
+                            color: isActive ? '#111' : '#333',
+                            fontWeight: isActive ? 500 : 400,
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          <span
+                            dangerouslySetInnerHTML={{
+                              __html: query.trim()
+                                ? sub.text.replace(
+                                    new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
+                                    '<mark style="background:#ffd666;padding:0 2px;border-radius:2px">$1</mark>',
+                                  )
+                                : sub.text,
+                            }}
+                          />
+                        </Paragraph>
+                      )}
+
+                      {/* Translation text */}
+                      {(viewMode === 'bilingual' || viewMode === 'translation') && translation && (
+                        <Paragraph
+                          style={{
+                            margin: viewMode === 'bilingual' ? '4px 0 0' : 0,
                             color: '#4A90D9',
-                            fontSize: 13,
+                            fontSize: viewMode === 'translation' ? 14 : 13,
+                            fontWeight: viewMode === 'translation' && isActive ? 500 : 400,
                             lineHeight: 1.6,
                           }}
                         >
-                          <SoundOutlined style={{ marginRight: 4, fontSize: 11 }} />
+                          {viewMode === 'bilingual' && <SoundOutlined style={{ marginRight: 4, fontSize: 11 }} />}
                           {translation.translated_text}
+                        </Paragraph>
+                      )}
+                      {/* Fallback in translation mode when no translation exists yet */}
+                      {viewMode === 'translation' && !translation && (
+                        <Paragraph
+                          style={{
+                            margin: 0,
+                            fontSize: 14,
+                            lineHeight: 1.7,
+                            color: isActive ? '#111' : '#333',
+                            fontStyle: 'italic',
+                          }}
+                        >
+                          {sub.text}
                         </Paragraph>
                       )}
                     </div>
                   </div>
                 );
-              })
+              })}
+              </>
             )}
           </div>
         </div>
