@@ -3,7 +3,7 @@
 import uuid
 from typing import Optional
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.meeting import Meeting
@@ -27,6 +27,10 @@ class SearchService:
         """Search subtitles with optional filters. Returns paginated results with highlights."""
         ts_query = func.websearch_to_tsquery("simple", keyword)
 
+        # "simple" config treats CJK text as single token → tsquery never matches.
+        # Combine tsquery with ILIKE so both space-separated and CJK languages work.
+        ilike_pattern = f"%{keyword}%"
+
         # Build query
         query = (
             select(
@@ -46,7 +50,12 @@ class SearchService:
                 func.ts_rank(Subtitle.text_search_vector, ts_query).label("rank"),
             )
             .join(Meeting, Subtitle.meeting_id == Meeting.id)
-            .where(Subtitle.text_search_vector.op("@@")(ts_query))
+            .where(
+                or_(
+                    Subtitle.text_search_vector.op("@@")(ts_query),
+                    Subtitle.text.ilike(ilike_pattern),
+                )
+            )
         )
 
         if meeting_id:
@@ -96,6 +105,7 @@ class SearchService:
     ) -> dict:
         """Search meetings by title and description."""
         ts_query = func.websearch_to_tsquery("simple", keyword)
+        ilike_pattern = f"%{keyword}%"
 
         query = (
             select(
@@ -110,7 +120,12 @@ class SearchService:
                 ).label("headline"),
                 func.ts_rank(Meeting.search_vector, ts_query).label("rank"),
             )
-            .where(Meeting.search_vector.op("@@")(ts_query))
+            .where(
+                or_(
+                    Meeting.search_vector.op("@@")(ts_query),
+                    Meeting.title.ilike(ilike_pattern),
+                )
+            )
         )
 
         # Count

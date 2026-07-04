@@ -22,7 +22,7 @@ const { Title, Text, Paragraph } = Typography;
 
 export default function SearchResultPage() {
   const navigate = useNavigate();
-  const { query, setQuery } = useSearch(400);
+  const { query, setQuery, setQueryImmediate } = useSearch(400);
   const {
     result,
     loading,
@@ -72,6 +72,7 @@ export default function SearchResultPage() {
         <Input.Search
           placeholder="搜索会议字幕内容（支持关键词、说话人筛选）"
           onChange={(e) => setQuery(e.target.value)}
+          onSearch={(value) => setQueryImmediate(value)}
           size="large"
           enterButton={<SearchOutlined />}
         />
@@ -105,11 +106,11 @@ export default function SearchResultPage() {
           <Empty description="未找到匹配的结果" style={{ marginTop: 60 }} />
         )}
 
-        {!loading && result && result.items.length === 0 && (
+        {!loading && result && (!result.items || result.items.length === 0) && (
           <Empty description={`未找到关于 "${query}" 的结果`} style={{ marginTop: 60 }} />
         )}
 
-        {result && result.items.length > 0 && (
+        {result && result.items && result.items.length > 0 && (
           <>
             <div style={{ marginBottom: 12 }}>
               <Text type="secondary">

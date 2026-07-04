@@ -12,5 +12,11 @@ export function useSearch(debounceMs = 300) {
     [debounceMs],
   );
 
-  return { query, setQuery: debouncedSetQuery };
+  // Immediate set — flushes any pending debounce
+  const setQueryImmediate = useCallback((value: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setQuery(value);
+  }, []);
+
+  return { query, setQuery: debouncedSetQuery, setQueryImmediate };
 }
