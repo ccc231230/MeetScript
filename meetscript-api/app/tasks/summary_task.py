@@ -73,7 +73,7 @@ def process_summary(self, meeting_id: str):
 
                 # Resolve model from registry
                 model_config = await model_registry.get_active_config(db, "summary")
-                model_name = model_config.model_name if model_config else None
+                model_name = model_config["model_name"] if model_config else None
 
                 # Call LLM
                 result = await summary_service.generate_summary(transcript, model=model_name)
@@ -90,7 +90,7 @@ def process_summary(self, meeting_id: str):
                     tokens_output=usage.get("output_tokens", 0),
                     model_name=result.get("model_used", "qwen-max"),
                     meeting_id=mid,
-                    model_config_id=model_config.id if model_config else None,
+                    model_config_id=uuid.UUID(model_config["id"]) if model_config else None,
                     request_id=result.get("request_id"),
                 )
 

@@ -17,17 +17,12 @@ class ModelRegistry:
     async def get_active_config(
         db: AsyncSession,
         model_type: str,
-    ) -> Optional[ModelConfig]:
-        """Get the active model config for a given type (asr/translation/summary).
-
-        Checks Redis cache first, falls back to DB.
-        """
-        # Try cache
+    ) -> Optional[dict]:
+        """Get the active model config for a given type, always returns dict."""
         cached = await cache_service.get_model_config(model_type)
         if cached:
             return cached
 
-        # Query DB
         result = await db.execute(
             select(ModelConfig)
             .where(ModelConfig.model_type == model_type)
@@ -36,21 +31,20 @@ class ModelRegistry:
             .limit(1)
         )
         config = result.scalar_one_or_none()
+        if not config:
+            return None
 
-        if config:
-            # Cache it
-            config_dict = {
-                "id": str(config.id),
-                "model_type": config.model_type,
-                "provider": config.provider,
-                "model_name": config.model_name,
-                "endpoint_url": config.endpoint_url,
-                "parameters": config.parameters,
-                "is_active": config.is_active,
-            }
-            await cache_service.set_model_config(model_type, config_dict)
-
-        return config
+        config_dict = {
+            "id": str(config.id),
+            "model_type": config.model_type,
+            "provider": config.provider,
+            "model_name": config.model_name,
+            "endpoint_url": config.endpoint_url,
+            "parameters": config.parameters,
+            "is_active": config.is_active,
+        }
+        await cache_service.set_model_config(model_type, config_dict)
+        return config_dict
 
     @staticmethod
     async def list_configs(

@@ -91,7 +91,7 @@ async def _run_asr(meeting_id: str, audio_url: Optional[str], request_id: str) -
 
             # Resolve model from registry (fallback to config default)
             model_config = await model_registry.get_active_config(db, "asr")
-            model_name = model_config.model_name if model_config else None
+            model_name = model_config["model_name"] if model_config else None
             logger.warning(
                 "[ASR] Using model: %s",
                 model_name or settings_.DEFAULT_ASR_MODEL,
@@ -208,9 +208,9 @@ async def _run_asr(meeting_id: str, audio_url: Optional[str], request_id: str) -
                 operation_type="asr",
                 tokens_input=usage.get("input_tokens", 0),
                 tokens_output=usage.get("output_tokens", 0),
-                model_name=model_config.model_name if model_config else settings_.DEFAULT_ASR_MODEL,
+                model_name=model_config["model_name"] if model_config else settings_.DEFAULT_ASR_MODEL,
                 meeting_id=mid,
-                model_config_id=model_config.id if model_config else None,
+                model_config_id=uuid.UUID(model_config["id"]) if model_config else None,
                 request_id=final_result.get("request_id"),
                 custom_cost=token_service.calculate_asr_cost(
                     meeting.duration_seconds or 0,
@@ -281,6 +281,7 @@ def process_asr(self, meeting_id: str, audio_url: Optional[str] = None):
             f"[ASR] Exception caught: {exc}\n{traceback.format_exc()}",
         )
         # Always release the lock so future manual retries can proceed
+        _redis_instances.clear()  # clear old event loop connections first
         try:
             asyncio.run(
                 cache_service.release_task_lock(meeting_id, "asr"),
@@ -290,6 +291,7 @@ def process_asr(self, meeting_id: str, audio_url: Optional[str] = None):
 
         if self.request.retries >= self.max_retries:
             logger.warning(f"[ASR] Max retries reached, marking as failed")
+            _redis_instances.clear()
             try:
                 asyncio.run(
                     _mark_failed(meeting_id, task_id=None, error=str(exc)),

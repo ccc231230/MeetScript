@@ -51,7 +51,7 @@ def process_translation(
 
                 # Resolve model from registry
                 model_config = await model_registry.get_active_config(db, "translation")
-                model_name = model_config.model_name if model_config else None
+                model_name = model_config["model_name"] if model_config else None
 
                 results = {}
 
@@ -130,7 +130,7 @@ def process_translation(
                         tokens_output=total_tokens_output,
                         model_name=result.get("model_used", "anytrans"),
                         meeting_id=mid,
-                        model_config_id=model_config.id if model_config else None,
+                        model_config_id=uuid.UUID(model_config["id"]) if model_config else None,
                     )
 
                     await task_service.update_task_status(
