@@ -3,7 +3,7 @@
 import uuid
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.model_config import ModelConfig
@@ -71,6 +71,23 @@ class ModelRegistry:
         return list(result.scalars().all())
 
     @staticmethod
+    async def _deactivate_others(
+        db: AsyncSession,
+        model_type: str,
+        exclude_id: Optional[uuid.UUID],
+    ) -> None:
+        """Set is_active=False for all other configs of the same type."""
+        stmt = (
+            update(ModelConfig)
+            .where(ModelConfig.model_type == model_type)
+            .where(ModelConfig.is_active == True)
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(ModelConfig.id != exclude_id)
+        stmt = stmt.values(is_active=False)
+        await db.execute(stmt)
+
+    @staticmethod
     async def create_config(
         db: AsyncSession,
         model_type: str,
@@ -82,6 +99,10 @@ class ModelRegistry:
         is_active: bool = True,
     ) -> ModelConfig:
         """Create a new model configuration."""
+        # Enforce mutual exclusion: only one active config per type
+        if is_active:
+            await ModelRegistry._deactivate_others(db, model_type, exclude_id=None)
+
         config = ModelConfig(
             model_type=model_type,
             provider=provider,
@@ -93,6 +114,9 @@ class ModelRegistry:
         )
         db.add(config)
         await db.flush()
+
+        # Refresh to load DB-computed values (created_at, updated_at)
+        await db.refresh(config)
 
         # Invalidate cache for this model type
         await cache_service.delete(f"model_config:{model_type}")
@@ -113,11 +137,19 @@ class ModelRegistry:
         if not config:
             return None
 
+        # Enforce mutual exclusion: only one active config per type
+        new_is_active = kwargs.get("is_active")
+        if new_is_active is True:
+            await ModelRegistry._deactivate_others(db, config.model_type, exclude_id=config_id)
+
         for key, value in kwargs.items():
             if hasattr(config, key) and value is not None:
                 setattr(config, key, value)
 
         await db.flush()
+
+        # Refresh to load DB-computed values (e.g. onupdate=func.now())
+        await db.refresh(config)
 
         # Invalidate cache
         await cache_service.delete(f"model_config:{config.model_type}")

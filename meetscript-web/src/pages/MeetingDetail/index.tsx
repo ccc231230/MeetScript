@@ -78,7 +78,7 @@ function SpeakerAvatar({ label, color, size = 28 }: { label: string; color: stri
 export default function MeetingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { message } = App.useApp();
-  const [targetLang, setTargetLang] = useState('en');
+  const [targetLang, setTargetLang] = useState('zh');
   const [viewMode, setViewMode] = useState<'original' | 'bilingual' | 'translation'>('original');
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);

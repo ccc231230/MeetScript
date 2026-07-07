@@ -1,11 +1,14 @@
 import { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Form, Input, Select, Button, Typography, Progress, App, Steps } from 'antd';
-import { InboxOutlined, VideoCameraOutlined, CloudUploadOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { useQuery } from '@tanstack/react-query';
+import { Upload, Form, Input, Select, Button, Typography, Progress, App, Steps, Tag, Tooltip } from 'antd';
+import { InboxOutlined, VideoCameraOutlined, CloudUploadOutlined, CheckCircleOutlined, PlayCircleOutlined, GlobalOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import { meetingsAPI } from '../../api/meetings';
+import { modelsAPI } from '../../api/models';
 import type { UploadFile } from 'antd/es/upload/interface';
+import type { ModelConfig } from '../../types';
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
@@ -47,6 +50,19 @@ export default function MeetingUploadPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState(0);
+
+  // Fetch active model configs
+  const { data: modelConfigs } = useQuery({
+    queryKey: ['model-configs'],
+    queryFn: async () => {
+      const res = await modelsAPI.list();
+      return (res.data || []).filter((c: ModelConfig) => c.is_active);
+    },
+    staleTime: 60_000,
+  });
+
+  const activeModel = (type: string) =>
+    modelConfigs?.find((c: ModelConfig) => c.model_type === type);
 
   const handleUpload = useCallback(async () => {
     const values = await form.validateFields();
@@ -126,6 +142,47 @@ export default function MeetingUploadPage() {
 
       {/* Upload Card */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        {/* Model Selection Bar */}
+        {modelConfigs && modelConfigs.length > 0 && (
+          <div className="px-8 py-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
+            <div className="flex items-center gap-2 mb-2">
+              <Text className="text-xs font-medium text-slate-500 uppercase tracking-wider">当前模型配置</Text>
+              <Tooltip title="在「模型配置」页面切换模型">
+                <Tag color="blue" className="text-xs cursor-pointer" onClick={() => navigate('/models')}>
+                  切换 →
+                </Tag>
+              </Tooltip>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {(['asr', 'translation', 'summary'] as const).map((type) => {
+                const cfg = activeModel(type);
+                const icons: Record<string, React.ReactNode> = {
+                  asr: <PlayCircleOutlined />,
+                  translation: <GlobalOutlined />,
+                  summary: <RobotOutlined />,
+                };
+                const labels: Record<string, string> = {
+                  asr: '语音识别',
+                  translation: '翻译',
+                  summary: '总结',
+                };
+                return (
+                  <div
+                    key={type}
+                    className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm"
+                  >
+                    <span className="text-teal-600 text-sm">{icons[type]}</span>
+                    <Text className="text-xs text-slate-500">{labels[type]}</Text>
+                    <Tag color={cfg ? 'green' : 'default'} className="text-xs m-0">
+                      {cfg?.model_name ?? '未配置'}
+                    </Tag>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Upload Area */}
         <div className="p-8">
           <Form form={form} layout="vertical" size="large">

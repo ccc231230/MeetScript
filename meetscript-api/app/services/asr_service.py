@@ -20,54 +20,92 @@ class ASRService:
         """Upload a local audio file to DashScope's file storage and return a
         publicly accessible URL usable by the Transcription API.
 
-        This solves the "publicly accessible URL" requirement for local dev
-        environments where MinIO is only reachable inside Docker.
-
-        Steps:
-          1. Upload to DashScope via Files.upload(purpose='inference')
-          2. Retrieve the file metadata via Files.get() to obtain the OSS URL
-          3. Return the presigned OSS URL
+        Uses raw requests.post() instead of the DashScope SDK to have full
+        control over timeouts and error handling.
         """
-        import dashscope
-        from dashscope import Files
-
-        dashscope.api_key = self._api_key
+        import requests
 
         file_name = os.path.basename(local_file_path)
         file_size = os.path.getsize(local_file_path)
 
-        # Step 1: Upload
-        upload_resp = Files.upload(
-            file_path=local_file_path,
-            purpose="inference",
+        # Step 1: Upload file via raw HTTP POST
+        url = "https://dashscope.aliyuncs.com/api/v1/files"
+        logger = __import__("logging").getLogger(__name__)
+        logger.warning(
+            "[ASR] Uploading %s (%d bytes) to DashScope...",
+            file_name, file_size,
         )
-        if upload_resp.status_code != 200:
+
+        try:
+            with open(local_file_path, "rb") as f:
+                response = requests.post(
+                    url,
+                    files=[("files", (file_name, f))],
+                    headers={
+                        "Authorization": f"Bearer {self._api_key}",
+                        "Accept": "application/json; charset=utf-8",
+                    },
+                    timeout=(30, 300),  # (connect, read)
+                )
+        except requests.exceptions.Timeout:
             raise RuntimeError(
-                f"DashScope file upload failed (HTTP {upload_resp.status_code}): "
-                f"{upload_resp.message}"
+                f"DashScope file upload timed out after 300s "
+                f"(file: {file_name}, size: {file_size})"
+            )
+        except requests.exceptions.ConnectionError as e:
+            raise RuntimeError(
+                f"DashScope file upload connection failed: {e}"
             )
 
-        uploaded = (upload_resp.output or {}).get("uploaded_files", [])
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"DashScope file upload failed (HTTP {response.status_code}): "
+                f"{response.text[:500]}"
+            )
+
+        resp_data = response.json()
+        data = resp_data.get("data", resp_data)
+        uploaded = data.get("uploaded_files", [])
         if not uploaded:
-            failed = (upload_resp.output or {}).get("failed_uploads", [])
+            failed = data.get("failed_uploads", [])
             raise RuntimeError(
                 f"DashScope file upload returned no files. "
-                f"Failed: {failed}"
+                f"Response: {response.text[:500]}"
             )
 
         file_id = uploaded[0]["file_id"]
+        logger.warning("[ASR] File uploaded, id=%s", file_id)
 
-        # Step 2: Retrieve URL
-        get_resp = Files.get(file_id=file_id)
+        # Step 2: Retrieve file URL
+        get_url = f"https://dashscope.aliyuncs.com/api/v1/files/{file_id}"
+        try:
+            get_resp = requests.get(
+                get_url,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Accept": "application/json; charset=utf-8",
+                },
+                timeout=(10, 60),
+            )
+        except requests.exceptions.Timeout:
+            raise RuntimeError(
+                f"DashScope file retrieval timed out for id={file_id}"
+            )
+
         if get_resp.status_code != 200:
             raise RuntimeError(
                 f"DashScope file retrieval failed (HTTP {get_resp.status_code})"
             )
 
-        file_url = (get_resp.output or {}).get("url")
+        get_data = get_resp.json().get("data", get_resp.json())
+        file_url = get_data.get("url")
         if not file_url:
-            raise RuntimeError("DashScope file retrieval returned no URL")
+            raise RuntimeError(
+                f"DashScope file retrieval returned no URL: "
+                f"{get_resp.text[:500]}"
+            )
 
+        logger.warning("[ASR] File URL retrieved: %s...", file_url[:80])
         return file_url
 
     async def submit_transcription(
@@ -76,6 +114,7 @@ class ASRService:
         source_language: str = "zh",
         enable_diarization: bool = True,
         speaker_count: Optional[int] = None,
+        model_name: Optional[str] = None,
     ) -> dict:
         """Submit an async ASR transcription job.
 
@@ -84,6 +123,7 @@ class ASRService:
             source_language: Language code (zh, en, ja, etc.).
             enable_diarization: Enable speaker diarization.
             speaker_count: Expected number of speakers (optional hint).
+            model_name: Model ID to use. Falls back to DEFAULT_ASR_MODEL.
 
         Returns:
             Dictionary with task_id and status.
@@ -93,8 +133,10 @@ class ASRService:
 
         dashscope.api_key = self._api_key
 
+        resolved_model = model_name or settings.DEFAULT_ASR_MODEL
+
         params = {
-            "model": settings.DEFAULT_ASR_MODEL,
+            "model": resolved_model,
             "file_urls": [audio_url],
             "language_hints": [source_language],
             "diarization_enabled": enable_diarization,

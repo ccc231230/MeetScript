@@ -40,8 +40,9 @@ async def create_model_config(
         parameters=body.parameters,
         is_active=body.is_active,
     )
+    result = ModelConfigOut.model_validate(config)
     await db.commit()
-    return ModelConfigOut.model_validate(config)
+    return result
 
 
 @router.put("/{config_id}", response_model=ModelConfigOut)
@@ -58,8 +59,10 @@ async def update_model_config(
     )
     if not config:
         raise HTTPException(status_code=404, detail="Model config not found")
+    # Serialize BEFORE commit to avoid detached-instance MissingGreenlet errors
+    result = ModelConfigOut.model_validate(config)
     await db.commit()
-    return ModelConfigOut.model_validate(config)
+    return result
 
 
 @router.delete("/{config_id}", status_code=204)

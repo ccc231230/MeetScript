@@ -70,7 +70,7 @@ services:
   # ── Celery Workers ─────────────────────────────────────────────
   celery_worker_high:
     build: .
-    command: celery -A app.core.celery_app worker -Q priority_high -c 2 --hostname=high@%h
+    command: celery -A app.core.celery_app worker -Q priority_high -c 2 --hostname=high@%h -l info
     env_file:
       - .env
     depends_on:

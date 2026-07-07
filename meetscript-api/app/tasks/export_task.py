@@ -37,10 +37,11 @@ def process_export(
         speaker_filter: Speaker label filter.
     """
     import asyncio
-    from app.core.redis_client import _redis_instances
+    from app.core.redis_client import _redis_instances, close_redis_connections
     import io
 
     async def _process():
+        await close_redis_connections()
         async with get_session_factory()() as db:
             try:
                 mid = uuid.UUID(meeting_id)

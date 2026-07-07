@@ -55,7 +55,7 @@ class TranslationService:
             return {
                 "translated_text": "",
                 "from_cache": True,
-                "model_used": model or "qwen-mt-flash",
+                "model_used": model or settings.DEFAULT_TRANSLATION_MODEL,
                 "tokens_input": 0,
                 "tokens_output": 0,
             }
@@ -68,7 +68,7 @@ class TranslationService:
             return {
                 "translated_text": cached,
                 "from_cache": True,
-                "model_used": model or "qwen-mt-flash",
+                "model_used": model or settings.DEFAULT_TRANSLATION_MODEL,
                 "tokens_input": 0,
                 "tokens_output": 0,
             }
@@ -95,7 +95,7 @@ class TranslationService:
         """Call the DashScope Qwen-MT translation API via Generation.call."""
         from dashscope import Generation
 
-        model_name = model or "qwen-mt-flash"
+        model_name = model or settings.DEFAULT_TRANSLATION_MODEL
 
         # Convert short codes to full language names for the API
         src_lang = SUPPORTED_LANGUAGES.get(source_language, source_language)

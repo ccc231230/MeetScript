@@ -26,11 +26,21 @@ async def get_redis_client(db: int = settings.REDIS_CACHE_DB) -> Redis:
 
 
 async def close_redis_connections() -> None:
-    """Gracefully close all Redis connections."""
+    """Gracefully close all Redis connections.
+
+    Handles the case where connections were created in a different (now
+    closed) event loop — e.g. in Celery prefork workers that recreate
+    event loops with asyncio.run() across retries.
+    """
     global _redis_instances
     for client in _redis_instances.values():
         if client is not None:
-            await client.close()
+            try:
+                await client.close()
+            except RuntimeError:
+                # Connection was created in a different (already closed)
+                # event loop — can't close gracefully, just discard
+                pass
     _redis_instances = {}
 
 

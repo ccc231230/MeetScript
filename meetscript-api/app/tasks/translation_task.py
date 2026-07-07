@@ -8,6 +8,7 @@ from app.core.database import get_session_factory
 from app.services.translation_service import translation_service
 from app.services.task_service import task_service
 from app.services.meeting_service import meeting_service
+from app.services.model_registry import model_registry
 from app.services.token_service import token_service
 from app.services.cache_service import cache_service
 
@@ -34,18 +35,23 @@ def process_translation(
         target_languages: List of target language codes. Default to ["en", "ja"].
     """
     import asyncio
-    from app.core.redis_client import _redis_instances
+    from app.core.redis_client import _redis_instances, close_redis_connections
 
     if target_languages is None:
         target_languages = ["en", "ja"]
 
     async def _process():
+        await close_redis_connections()
         async with get_session_factory()() as db:
             try:
                 mid = uuid.UUID(meeting_id)
                 meeting = await meeting_service.get_meeting(db, mid)
                 if not meeting:
                     raise ValueError(f"Meeting {meeting_id} not found")
+
+                # Resolve model from registry
+                model_config = await model_registry.get_active_config(db, "translation")
+                model_name = model_config.model_name if model_config else None
 
                 results = {}
 
@@ -83,6 +89,7 @@ def process_translation(
                             sub.text,
                             target_language=target_lang,
                             source_language=meeting.source_language,
+                            model=model_name,
                         )
 
                         if result["from_cache"]:

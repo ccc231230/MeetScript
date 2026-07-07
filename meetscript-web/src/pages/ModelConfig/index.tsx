@@ -68,6 +68,7 @@ export default function ModelConfigPage() {
 
   const handleEdit = (record: ModelConfig) => {
     setEditModal(record);
+    form.resetFields();  // clear stale fields from previously opened modal
     form.setFieldsValue({
       model_name: record.model_name,
       is_active: record.is_active,
@@ -77,7 +78,15 @@ export default function ModelConfigPage() {
 
   const handleSave = () => {
     const values = form.getFieldsValue();
-    const { model_name, is_active, ...params } = values;
+    const { model_name, is_active, ...others } = values;
+    // Only keep keys that are in the current record's parameters
+    const known_keys = new Set([...Object.keys(editModal?.parameters ?? {}), 'diarization_enabled', 'speaker_count', 'temperature', 'top_p', 'max_tokens', 'source_lang']);
+    const params: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(others)) {
+      if (known_keys.has(k) && v !== undefined) {
+        params[k] = v;
+      }
+    }
     updateMutation.mutate({
       id: editModal!.id,
       data: { model_name, is_active, parameters: params },

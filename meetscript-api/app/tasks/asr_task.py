@@ -3,19 +3,22 @@
 import asyncio
 import logging
 import os
+import subprocess
 import tempfile
 import traceback
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from app.core.celery_app import app
 from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.services.asr_service import asr_service
-from app.core.redis_client import _redis_instances
+from app.core.redis_client import _redis_instances, close_redis_connections
 from app.services.cache_service import cache_service
 from app.services.file_service import file_service
 from app.services.meeting_service import meeting_service
+from app.services.model_registry import model_registry
 from app.services.subtitle_service import subtitle_service
 from app.services.task_service import task_service
 from app.services.token_service import token_service
@@ -45,8 +48,12 @@ async def _run_asr(meeting_id: str, audio_url: Optional[str], request_id: str) -
     """Core ASR processing logic, separate from Celery task wrapper."""
     mid = uuid.UUID(meeting_id)
     local_path = None
+    audio_path = None
 
     try:
+        # Close stale Redis connections from previous asyncio.run() calls
+        await close_redis_connections()
+
         # Release any stale lock from previous attempts
         await cache_service.release_task_lock(meeting_id, "asr")
 
@@ -82,6 +89,14 @@ async def _run_asr(meeting_id: str, audio_url: Optional[str], request_id: str) -
                 f"lang={meeting.source_language}, file={meeting.file_path}",
             )
 
+            # Resolve model from registry (fallback to config default)
+            model_config = await model_registry.get_active_config(db, "asr")
+            model_name = model_config.model_name if model_config else None
+            logger.warning(
+                "[ASR] Using model: %s",
+                model_name or settings_.DEFAULT_ASR_MODEL,
+            )
+
             if not audio_url:
                 logger.warning("[ASR] No audio_url provided, downloading from MinIO")
                 await task_service.update_task_status(
@@ -105,7 +120,39 @@ async def _run_asr(meeting_id: str, audio_url: Optional[str], request_id: str) -
                 )
                 await db.commit()
 
-                audio_url = await asr_service.upload_audio_to_dashscope(local_path)
+                # Extract audio from video to reduce upload size
+                upload_path = local_path
+                video_exts = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv"}
+                if Path(local_path).suffix.lower() in video_exts:
+                    audio_path = os.path.join(
+                        tempfile.gettempdir(),
+                        f"asr_audio_{meeting_id[:8]}.wav",
+                    )
+                    logger.warning(
+                        "[ASR] Extracting audio from video (%d bytes) "
+                        "to reduce upload size...",
+                        len(file_data),
+                    )
+                    subprocess.run(
+                        [
+                            "ffmpeg", "-y",
+                            "-i", local_path,
+                            "-vn",
+                            "-acodec", "pcm_s16le",
+                            "-ar", "16000",
+                            "-ac", "1",
+                            audio_path,
+                        ],
+                        capture_output=True, text=True, timeout=300, check=True,
+                    )
+                    audio_size = os.path.getsize(audio_path)
+                    logger.warning(
+                        "[ASR] Audio extracted: %d bytes (reduced %d bytes)",
+                        audio_size, len(file_data) - audio_size,
+                    )
+                    upload_path = audio_path
+
+                audio_url = await asr_service.upload_audio_to_dashscope(upload_path)
                 logger.warning(
                     f"[ASR] Uploaded to DashScope: {audio_url[:80]}...",
                 )
@@ -123,6 +170,7 @@ async def _run_asr(meeting_id: str, audio_url: Optional[str], request_id: str) -
                 audio_url=audio_url,
                 source_language=meeting.source_language,
                 enable_diarization=True,
+                model_name=model_name,
             )
             logger.warning(
                 f"[ASR] Submitted transcription: "
@@ -190,6 +238,11 @@ async def _run_asr(meeting_id: str, audio_url: Optional[str], request_id: str) -
         if local_path:
             try:
                 os.unlink(local_path)
+            except OSError:
+                pass
+        if audio_path:
+            try:
+                os.unlink(audio_path)
             except OSError:
                 pass
 

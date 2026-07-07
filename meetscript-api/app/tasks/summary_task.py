@@ -7,6 +7,7 @@ from app.core.database import get_session_factory
 from app.services.summary_service import summary_service
 from app.services.task_service import task_service
 from app.services.meeting_service import meeting_service
+from app.services.model_registry import model_registry
 from app.services.token_service import token_service
 from app.services.cache_service import cache_service
 
@@ -29,10 +30,11 @@ def process_summary(self, meeting_id: str):
     3. Record token usage
     """
     import asyncio
-    from app.core.redis_client import _redis_instances
+    from app.core.redis_client import _redis_instances, close_redis_connections
     import json
 
     async def _process():
+        await close_redis_connections()
         async with get_session_factory()() as db:
             try:
                 mid = uuid.UUID(meeting_id)
@@ -69,8 +71,12 @@ def process_summary(self, meeting_id: str):
 
                 await task_service.update_task_status(db, task.id, "running", progress=30)
 
+                # Resolve model from registry
+                model_config = await model_registry.get_active_config(db, "summary")
+                model_name = model_config.model_name if model_config else None
+
                 # Call LLM
-                result = await summary_service.generate_summary(transcript)
+                result = await summary_service.generate_summary(transcript, model=model_name)
 
                 await task_service.update_task_status(db, task.id, "running", progress=80)
 

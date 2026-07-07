@@ -10,7 +10,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api/': {
-        target: 'http://localhost:8000',
+        target: 'http://api:8000',
         changeOrigin: true,
         timeout: 5 * 60 * 1000, // 5 minutes for large file uploads
       },
