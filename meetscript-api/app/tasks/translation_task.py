@@ -130,6 +130,7 @@ def process_translation(
                         tokens_output=total_tokens_output,
                         model_name=result.get("model_used", "anytrans"),
                         meeting_id=mid,
+                        model_config_id=model_config.id if model_config else None,
                     )
 
                     await task_service.update_task_status(

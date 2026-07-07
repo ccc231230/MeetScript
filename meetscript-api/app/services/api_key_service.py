@@ -65,16 +65,19 @@ class ApiKeyService:
         )
         db.add(api_key)
         await db.flush()
+        await db.refresh(api_key)  # load DB-computed values
 
         return {
             "api_key": full_key,
             "id": api_key.id,
+            "user_id": str(api_key.user_id),
             "key_name": api_key.key_name,
             "prefix": api_key.prefix,
             "scopes": api_key.scopes,
             "rate_limit": api_key.rate_limit,
             "expires_at": api_key.expires_at,
             "is_active": api_key.is_active,
+            "last_used_at": api_key.last_used_at,
             "created_at": api_key.created_at,
         }
 

@@ -66,6 +66,18 @@ async def get_token_usage_stats(
     total_tokens = sum(i.tokens_total for i in items)
     total_cost = sum(i.cost for i in items)
 
+    # Batch-resolve model names: collect unique model_config_ids, query once
+    model_ids = {i.model_config_id for i in items if i.model_config_id}
+    model_names: dict[uuid.UUID, str] = {}
+    if model_ids:
+        cfg_result = await db.execute(
+            select(ModelConfig.id, ModelConfig.model_name).where(
+                ModelConfig.id.in_(model_ids)
+            )
+        )
+        for row in cfg_result.all():
+            model_names[row[0]] = row[1]
+
     by_operation: dict[str, dict] = {}
     by_model: dict[str, dict] = {}
 
@@ -77,16 +89,10 @@ async def get_token_usage_stats(
         by_operation[op]["tokens"] += item.tokens_total
         by_operation[op]["cost"] += round(item.cost, 6)
 
-        # By model — use operation_type as proxy if model_config_id is null
+        # By model — use operation_type as fallback if model_config_id is null
         model_key = item.operation_type or "unknown"
-        if item.model_config_id:
-            # Resolve model name from model_configs table
-            cfg_result = await db.execute(
-                select(ModelConfig.model_name).where(ModelConfig.id == item.model_config_id)
-            )
-            cfg_name = cfg_result.scalar_one_or_none()
-            if cfg_name:
-                model_key = cfg_name
+        if item.model_config_id and item.model_config_id in model_names:
+            model_key = model_names[item.model_config_id]
 
         if model_key not in by_model:
             by_model[model_key] = {"tokens": 0, "cost": 0.0}

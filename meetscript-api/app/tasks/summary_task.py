@@ -90,6 +90,7 @@ def process_summary(self, meeting_id: str):
                     tokens_output=usage.get("output_tokens", 0),
                     model_name=result.get("model_used", "qwen-max"),
                     meeting_id=mid,
+                    model_config_id=model_config.id if model_config else None,
                     request_id=result.get("request_id"),
                 )
 

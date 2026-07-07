@@ -208,8 +208,9 @@ async def _run_asr(meeting_id: str, audio_url: Optional[str], request_id: str) -
                 operation_type="asr",
                 tokens_input=usage.get("input_tokens", 0),
                 tokens_output=usage.get("output_tokens", 0),
-                model_name=settings_.DEFAULT_ASR_MODEL,
+                model_name=model_config.model_name if model_config else settings_.DEFAULT_ASR_MODEL,
                 meeting_id=mid,
+                model_config_id=model_config.id if model_config else None,
                 request_id=final_result.get("request_id"),
                 custom_cost=token_service.calculate_asr_cost(
                     meeting.duration_seconds or 0,
